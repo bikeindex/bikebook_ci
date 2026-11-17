@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      BIKEBOOK_DATA: ${{ github.workspace }}/bikebook
+    steps:
+      # A repository other than the one running the workflow checks out at its default branch: called from bikebook,
+      # that's this repo's main over the commit under test; run here, this commit over bikebook's main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: bikeindex/bikebook_ci
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository == 'bikeindex/bikebook_ci' && 'bikeindex/bikebook' || github.repository }}
+          path: bikebook
+      - name: Install the pinned toolchain
+        run: |
+          version=$(awk '$1 == "rust" { print $2 }' .tool-versions)
+          rustup toolchain install "$version" --profile minimal --component rustfmt,clippy
+          rustup default "$version"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked --no-fail-fast
