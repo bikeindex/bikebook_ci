@@ -1,0 +1,151 @@
+{
+  "slug_aliases": {
+    "atb_gravel_cyclocross_etc": "atb",
+    "road_endurance_sportive": "road_endurance",
+    "carbon_or_composite": "carbon",
+    "wood_or_organic_material": "wood",
+    "mid_drive_dedicated_chain": "mid_drive_dedicated",
+    "e_personal_mobility": "epamd",
+    "aero_bars_extensions_bar_ends": "aero_bars",
+    "cog_cassette_freewheel": "cassette",
+    "bashguard_chain_guide": "chain_guide",
+    "e_vehicle_display_remote": "e_vehicle_remote",
+    "6_speed_pinion_gearbox_front": "6_speed_pinion",
+    "9_speed_pinion_gearbox_front": "9_speed_pinion",
+    "12_speed_pinion_gearbox_front": "12_speed_pinion",
+    "18_speed_pinion_gearbox_front": "18_speed_pinion"
+  },
+  "family_short_names": {
+    "Road Biking": "Road",
+    "Track Racing": "Track"
+  },
+  "primary_activity_priorities": {
+    "Commuting (Around Town / Hybrid)": 600,
+    "MTB (Mountain Biking)": 595,
+    "Road Biking": 590,
+    "ATB (All Terrain Biking) — Gravel, Cyclocross, etc.": 575,
+    "Cargo": 450,
+    "BMX": 440,
+    "Bike Polo": 401,
+    "Fixed Gear Freestyle": 360,
+    "DJ (Dirt Jumping)": 330,
+    "Track Racing": 310,
+    "Trials": 305,
+    "Gravel": 282,
+    "Cyclocross": 281,
+    "Bikepacking": 280,
+    "Bike Touring": 278,
+    "Randonneuring": 271,
+    "All Road": 268,
+    "Monster Cross": 253,
+    "Triathlon": 238,
+    "Time Trial": 237,
+    "Criterium": 236,
+    "Climbing": 235,
+    "Aero": 234,
+    "Endurance / Sportive": 231,
+    "Trail / All-Mountain": 192,
+    "Cross-Country (XC)": 191,
+    "Enduro": 190,
+    "Downhill": 189,
+    "Freeride": 188,
+    "Child Carrying": 118,
+    "Commercial": 117,
+    "Race": 108,
+    "Freestyle": 107,
+    "Flatland": 106,
+    "Cruiser": 105,
+    "Pursuit": 80,
+    "Sprint": 79,
+    "Keirin / NJS": 78,
+    "Slopestyle": 67,
+    "4X/Dual Slalom": 66,
+    "Street Trials": 55,
+    "Pure Trials": 54,
+    "Artistic Cycling": 5,
+    "Dirt Travel": 100
+  },
+  "primary_activities": [
+    "Dirt Travel"
+  ],
+  "wheel_sizes": [
+    {
+      "iso_bsd": 89,
+      "name": "3.5in",
+      "priority": "rare",
+      "description": "3.5in (90 mm) solid wheel, 6KU Sail 11 M kids' e-scooter rear (Rare)"
+    },
+    {
+      "iso_bsd": 100,
+      "name": "3.9in",
+      "priority": "uncommon",
+      "description": "3.9in (100 mm) solid wheel, stunt kick scooters such as Ktaxon's Pro Scooter (Uncommon)"
+    },
+    {
+      "iso_bsd": 102,
+      "name": "7in",
+      "priority": "rare",
+      "description": "7in (178 x 38) solid wheel, NIU KQi Youth kids' e-scooter rear (Rare)"
+    },
+    {
+      "iso_bsd": 54,
+      "name": "7.7in",
+      "priority": "rare",
+      "description": "7.7in (7.7 x 2.8) PU wheel, Vanpowers VanSwift mobility scooter (Rare)"
+    },
+    {
+      "iso_bsd": 115,
+      "name": "7.5in",
+      "priority": "rare",
+      "description": "7.5in (191 x 38) solid wheel, NIU KQi Youth kids' e-scooter front (Rare)"
+    },
+    {
+      "iso_bsd": 127,
+      "name": "5in",
+      "priority": "rare",
+      "description": "5in (127 mm) wheel, Gyroor Ringo electric balance board (Rare)"
+    },
+    {
+      "iso_bsd": 120,
+      "name": "4.7in",
+      "priority": "rare",
+      "description": "4.7in (120 mm) solid wheel, 6KU Sail 11 M kids' e-scooter front (Rare)"
+    },
+    {
+      "iso_bsd": 155,
+      "name": "9.5in",
+      "priority": "uncommon",
+      "description": "9.5in (9.5 x 2.5-6.1) NIU KQi3, KQi 100 and KQi Air e-scooters (Uncommon)"
+    },
+    {
+      "iso_bsd": 178,
+      "name": "10.5in",
+      "priority": "uncommon",
+      "description": "10.5in (10.5 x 2.5-7) NIU KQi 300 e-scooters (Uncommon)"
+    },
+    {
+      "iso_bsd": 76,
+      "name": "3in",
+      "priority": "rare",
+      "description": "3in (76 mm) solid wheel, Hover-1 Switch e-scooter/skateboard (Rare)"
+    },
+    {
+      "iso_bsd": 114,
+      "name": "4.5in",
+      "priority": "rare",
+      "description": "4.5in (114 mm) solid wheel, Hover-1 My First E-Scooter front (Rare)"
+    },
+    {
+      "iso_bsd": 356,
+      "name": "14in moto",
+      "priority": "uncommon",
+      "description": "14in motorcycle rim (60/100-14, 2.50-14) Talaria, Sur-Ron and Xion CyberX e-motos (Uncommon)"
+    },
+    {
+      "iso_bsd": 533,
+      "name": "21in moto",
+      "priority": "rare",
+      "description": "21in motorcycle rim (70/100-21, 80/100-21) Stark Varg front, Xion pedicabs' rear (Rare)"
+    }
+  ]
+}

@@ -1,9 +1,11 @@
+mod bike_data;
 mod comparison;
 mod completeness;
 mod index;
 mod markets;
 mod ruby;
 
+use bike_data::BikeData;
 use bikebook_data_checks::*;
 use index::Row;
 use markets::{Classifications, Markets};
@@ -42,7 +44,22 @@ fn main() {
         )
     };
     let (vocabulary_schema, _) = schema("vocabulary");
-    let (_, schema_version) = schema("vehicle_model");
+    let (vehicle_schema, schema_version) = schema("vehicle_model");
+    let enumerated = |field: &str| -> Vec<String> {
+        let definition = &vehicle_schema["$defs"][field];
+        let definition = definition["$ref"].as_str().map_or(definition, |reference| {
+            &vocabulary_schema["$defs"][reference.rsplit('/').next().unwrap()]
+        });
+        definition["enum"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|slug| Some(slug.as_str()?.to_string()))
+            .collect()
+    };
+    let bike_data = BikeData::fetch();
+    println!("bike_data at {}", bike_data.commit);
+    let activities = bike_data.primary_activities();
     let markets = Markets::load(&vocabulary_schema);
     let records: Map<String, Value> = catalog
         .files
@@ -109,12 +126,37 @@ fn main() {
         .collect();
     let index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
     let vocabulary_snapshot = snapshot(include_str!("../../../catalog_snapshot/vocabulary.json"));
-    let families: BTreeMap<&str, &str> = index_snapshot["primary_activities"]
-        .as_array()
-        .unwrap()
+    let families: BTreeMap<&str, &str> = activities
         .iter()
-        .filter_map(|activity| Some((activity["slug"].as_str()?, activity["family"].as_str()?)))
+        .map(|activity| (&*activity.slug, &*activity.family))
         .collect();
+    let bike_data_names = bike_data.names(&activities);
+    let names: Map<String, Value> = vehicle_schema["$defs"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter_map(|field| {
+            let named = match bike_data_names.get(field.as_str()) {
+                Some(source) => enumerated(field)
+                    .into_iter()
+                    .map(|slug| {
+                        let name = source
+                            .get(&slug)
+                            .unwrap_or_else(|| panic!("bike_data names no {field} {slug}"));
+                        (slug, json!(name))
+                    })
+                    .collect(),
+                None => vocabulary_snapshot["names"].get(field)?.clone(),
+            };
+            Some((field.clone(), named))
+        })
+        .collect();
+    let mut kit = snapshot(include_str!("../../../catalog_snapshot/kit.json"));
+    let components = enumerated("components.type");
+    kit["component_groups"] = json!(bike_data.component_groups(
+        &kit["component_groups"],
+        &components.iter().map(String::as_str).collect::<Vec<_>>()
+    ));
     let comparisons = comparison::with_rider_heights(
         rows.par_iter()
             .map(|row| {
@@ -132,20 +174,20 @@ fn main() {
     let index = json!({
         "format": FORMAT,
         "manufacturers": manufacturers(&rows),
-        "primary_activities": index_snapshot["primary_activities"],
-        "vehicle_types": index_snapshot["vehicle_types"],
+        "primary_activities": activities.iter().map(|activity| json!({"slug": activity.slug, "name": activity.name, "family": activity.family})).collect::<Vec<_>>(),
+        "vehicle_types": names["type"].as_object().unwrap().iter().map(|(slug, name)| json!({"slug": slug, "name": name})).collect::<Vec<_>>(),
         "filter_options": index_snapshot["filter_options"],
         "stock_photos": index::PHOTO_URL,
         "models": rows.par_iter().map(|row| row.to_json(&markets, &classifications)).collect::<Vec<_>>(),
     });
     let vocabulary = json!({
         "format": FORMAT,
-        "names": vocabulary_snapshot["names"],
+        "names": names,
         "e_vehicle_classifications": records,
         "currencies": vocabulary_snapshot["currencies"],
-        "wheel_sizes": vocabulary_snapshot["wheel_sizes"],
+        "wheel_sizes": bike_data.wheel_sizes(),
     });
-    let kit = json!({"format": FORMAT, "kit": snapshot(include_str!("../../../catalog_snapshot/kit.json"))});
+    let kit = json!({"format": FORMAT, "kit": kit});
     let comparison_fields: Map<String, Value> = comparison::FIELDS
         .iter()
         .map(|field| {
