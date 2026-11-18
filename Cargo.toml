@@ -11,3 +11,4 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 [profile.test]
 opt-level = 3
+debug = false
