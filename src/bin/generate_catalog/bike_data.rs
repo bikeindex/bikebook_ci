@@ -109,8 +109,7 @@ impl BikeData {
     /// Bike Index's ordering: by priority, then as created, a flavor once under each of its families
     pub fn primary_activities(&self) -> Vec<Activity> {
         let rows = self.rows("primary_activities.csv");
-        let bikebook_own = self.additions["primary_activities"].as_array().unwrap();
-        let mut created: Vec<(&str, Option<&str>)> = rows
+        let mut created: Vec<(&str, Option<&str>, i64)> = rows
             .iter()
             .flat_map(|row| {
                 let families: Vec<&str> = row["families"]
@@ -118,31 +117,37 @@ impl BikeData {
                     .map(str::trim)
                     .filter(|family| !family.is_empty())
                     .collect();
-                match row["flavor"].trim() {
-                    "" => families.into_iter().map(|family| (family, None)).collect(),
-                    flavor if families.is_empty() => vec![(flavor, None)],
+                let flavor = row["flavor"].trim();
+                let priority = row
+                    .get("priority")
+                    .and_then(|priority| priority.parse().ok())
+                    .unwrap_or_else(|| {
+                        panic!("primary_activities.csv: {flavor:?} {families:?} has no priority")
+                    });
+                match flavor {
+                    "" => families
+                        .into_iter()
+                        .map(|family| (family, None, priority))
+                        .collect(),
+                    flavor if families.is_empty() => vec![(flavor, None, priority)],
                     flavor => families
                         .into_iter()
-                        .map(|family| (flavor, Some(family)))
+                        .map(|family| (flavor, Some(family), priority))
                         .collect::<Vec<_>>(),
                 }
             })
             .chain(
-                bikebook_own
+                self.additions["primary_activities"]
+                    .as_object()
+                    .unwrap()
                     .iter()
-                    .map(|name| (name.as_str().unwrap(), None)),
+                    .map(|(name, priority)| (name.as_str(), None, priority.as_i64().unwrap())),
             )
             .collect();
-        created.sort_by_key(|(name, _)| {
-            std::cmp::Reverse(
-                self.additions["primary_activity_priorities"][*name]
-                    .as_i64()
-                    .unwrap_or(i64::MAX),
-            )
-        });
+        created.sort_by_key(|(_, _, priority)| std::cmp::Reverse(*priority));
         created
             .into_iter()
-            .map(|(name, family)| {
+            .map(|(name, family, _)| {
                 let name = family.map_or(name.to_string(), |family| {
                     format!("{}: {name}", self.short_name(family))
                 });
@@ -220,24 +225,18 @@ impl BikeData {
             .collect()
     }
 
-    /// bikebook's own sizes replace bike_data's of the same iso_bsd
     pub fn wheel_sizes(&self) -> Map<String, Value> {
         let sizes: BTreeMap<i64, Value> = self
             .rows("wheel_sizes.csv")
             .iter()
             .map(|row| {
-                json!({
-                    "iso_bsd": row["iso_bsd"].parse::<i64>().unwrap(),
-                    "name": row["name"],
-                    "priority": row["priority"],
-                    "description": (!row["description"].is_empty()).then(|| &row["description"]),
-                })
-            })
-            .chain(self.additions["wheel_sizes"].as_array().unwrap().clone())
-            .map(|size| {
                 (
-                    size["iso_bsd"].as_i64().unwrap(),
-                    json!({"name": size["name"], "description": size["description"], "standard": size["priority"] == "standard"}),
+                    row["iso_bsd"].parse().unwrap(),
+                    json!({
+                        "name": row["name"],
+                        "description": (!row["description"].is_empty()).then(|| &row["description"]),
+                        "standard": row["priority"] == "standard",
+                    }),
                 )
             })
             .collect();
@@ -277,11 +276,10 @@ mod tests {
     use super::*;
 
     fn bike_data(files: &[(&str, &str)]) -> BikeData {
-        let directory = std::env::temp_dir().join(format!(
-            "bike_data_test_{}_{}",
-            std::process::id(),
-            files[0].0
-        ));
+        static TESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let test = TESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory =
+            std::env::temp_dir().join(format!("bike_data_test_{}_{test}", std::process::id()));
         fs::create_dir_all(directory.join("data")).unwrap();
         files
             .iter()
@@ -291,7 +289,7 @@ mod tests {
 
     #[test]
     fn slugify_drops_parentheses_and_applies_aliases() {
-        let data = bike_data(&[("slugify.csv", "")]);
+        let data = bike_data(&[]);
         assert_eq!(data.slugify("Cross-Country (XC)"), "cross_country");
         assert_eq!(data.slugify("Bell/Noisemaker"), "bell_noisemaker");
         assert_eq!(data.slugify("Carbon or Composite"), "carbon");
@@ -301,7 +299,7 @@ mod tests {
     fn primary_activities_order_by_priority_and_name_flavors_by_family() {
         let data = bike_data(&[(
             "primary_activities.csv",
-            "flavor,families\n,Road Biking\n,MTB (Mountain Biking)\nBikepacking,MTB (Mountain Biking) & Road Biking\nUnranked,\n",
+            "flavor,families,priority\n,Road Biking,590\n,MTB (Mountain Biking),595\nBikepacking,MTB (Mountain Biking) & Road Biking,280\nBike Polo,,401\n",
         )]);
         let activities = data.primary_activities();
         let activities: Vec<[&str; 3]> = activities
@@ -311,9 +309,9 @@ mod tests {
         assert_eq!(
             activities,
             [
-                ["unranked", "Unranked", "unranked"],
                 ["mtb", "MTB (Mountain Biking)", "mtb"],
                 ["road_biking", "Road Biking", "road_biking"],
+                ["bike_polo", "Bike Polo", "bike_polo"],
                 ["mtb_bikepacking", "MTB: Bikepacking", "mtb"],
                 ["road_bikepacking", "Road: Bikepacking", "road_biking"],
                 ["dirt_travel", "Dirt Travel", "dirt_travel"],
@@ -335,13 +333,23 @@ mod tests {
     }
 
     #[test]
-    fn wheel_sizes_order_by_iso_bsd_with_bikebook_own() {
+    #[should_panic(expected = "has no priority")]
+    fn primary_activities_need_a_priority() {
+        bike_data(&[(
+            "primary_activities.csv",
+            "flavor,families,priority\nBike Polo,,\n",
+        )])
+        .primary_activities();
+    }
+
+    #[test]
+    fn wheel_sizes_order_by_iso_bsd() {
         let data = bike_data(&[(
             "wheel_sizes.csv",
-            "name,iso_bsd,priority,description\n700c,622,standard,700c road\n6in,90,uncommon,\n",
+            "name,iso_bsd,priority,description\n700c,622,standard,700c road\n6in,90,uncommon,\n3in,76,rare,3in solid\n",
         )]);
         let sizes = data.wheel_sizes();
-        assert_eq!(sizes.keys().take(2).collect::<Vec<_>>(), ["54", "76"]);
+        assert_eq!(sizes.keys().collect::<Vec<_>>(), ["76", "90", "622"]);
         assert_eq!(
             sizes["622"],
             json!({"name": "700c", "description": "700c road", "standard": true})

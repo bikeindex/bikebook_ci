@@ -28,4 +28,4 @@ This writes the catalog the viewer at [bikeindex.org/bikebook](https://bikeindex
 
 Names, primary activities, vehicle types, wheel sizes and component groups come from [bike_data](https://github.com/bikeindex/bike_data)'s latest commit, fetched each run and cached by commit under the temp directory, so a bike_data change is published without a change here.
 
-Some of the catalog's hand-written values aren't in bikebook or bike_data yet: the viewer's kit, the names of enums bike_data doesn't list, currencies, filter labels, market rules, and Bike Index's slug aliases and activity priorities (`bike_data_additions.json`). Until they are ([#3](https://github.com/bikeindex/bikebook_ci/issues/3)), they're copied from `catalog_snapshot/`.
+Some of the catalog's hand-written values aren't in bikebook or bike_data yet: the viewer's kit, the names of enums bike_data doesn't list, currencies, filter labels, market rules, and bikebook's slug aliases, family short names and own Dirt Travel activity (`bike_data_additions.json`). Until they are ([#3](https://github.com/bikeindex/bikebook_ci/issues/3)), they're copied from `catalog_snapshot/`.
