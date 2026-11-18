@@ -1,4 +1,5 @@
 use bikebook_data_checks::*;
+use rayon::prelude::*;
 use serde_json::{Map, Value};
 
 fn order_errors(schemas: &Schemas, path: &str, data: &Value) -> Vec<String> {
@@ -26,8 +27,8 @@ fn every_file_is_in_schema_key_order() {
     let schemas = Schemas::load();
     let problems = Catalog::load()
         .files
-        .iter()
-        .flat_map(|(path, data)| order_errors(&schemas, path, data))
+        .par_iter()
+        .flat_map_iter(|(path, data)| order_errors(&schemas, path, data))
         .collect();
     assert_none("key order", problems);
 }
@@ -50,8 +51,11 @@ fn swapped(value: &Value, first: &str, second: &str) -> Value {
 #[test]
 fn a_reordered_file_is_reported() {
     let schemas = Schemas::load();
-    let catalog = Catalog::load();
     let path = "vehicle_models/specialized/2025/haul_st.json";
+    let overlay_path = "vehicle_models/specialized/2025/haul_st_ca.json";
+    let catalog = Catalog {
+        files: parsed(&[path, overlay_path]),
+    };
     let model = &catalog.files[path];
     assert_eq!(order_errors(&schemas, path, model), Vec::<String>::new());
 
@@ -94,7 +98,6 @@ fn a_reordered_file_is_reported() {
             .any(|error| error.contains("/years: keys must be ordered"))
     );
 
-    let overlay_path = "vehicle_models/specialized/2025/haul_st_ca.json";
     let overlay = &catalog.files[overlay_path];
     assert_eq!(
         order_errors(&schemas, overlay_path, overlay),

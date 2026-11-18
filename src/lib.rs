@@ -1,7 +1,9 @@
+use rayon::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 pub const DATA_DIRECTORIES: [&str; 3] =
     ["vehicle_models", "components", "e_vehicle_classifications"];
@@ -23,7 +25,7 @@ const IDENTITIES: [(&str, &[&str]); 8] = [
 ];
 
 /// A missing data directory reads as an empty catalog, which passes every check
-pub fn root() -> PathBuf {
+static ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     let root = PathBuf::from(
         std::env::var_os("BIKEBOOK_DATA").expect("set BIKEBOOK_DATA to a bikebook checkout"),
     );
@@ -33,6 +35,10 @@ pub fn root() -> PathBuf {
         root.display()
     );
     root
+});
+
+pub fn root() -> &'static Path {
+    &ROOT
 }
 
 /// Relative to the repo root
@@ -73,14 +79,15 @@ pub fn data_paths() -> Vec<String> {
 }
 
 /// A file that doesn't parse is left out, for `formatting` to report
-pub fn parsed(paths: &[String]) -> BTreeMap<String, Value> {
+pub fn parsed(paths: &[impl AsRef<str> + Sync]) -> BTreeMap<String, Value> {
     paths
-        .iter()
+        .par_iter()
+        .map(AsRef::as_ref)
         .filter_map(|path| {
             let text = fs::read_to_string(root().join(path)).ok()?;
             serde_json::from_str(&text)
                 .ok()
-                .map(|value| (path.clone(), value))
+                .map(|value| (path.to_string(), value))
         })
         .collect()
 }

@@ -1,4 +1,5 @@
 use bikebook_data_checks::*;
+use rayon::prelude::*;
 use serde_json::{Value, json};
 
 const NAMES: [&str; 4] = [
@@ -9,23 +10,30 @@ const NAMES: [&str; 4] = [
 ];
 
 fn schema_errors(schemas: &Schemas, catalog: &Catalog) -> Vec<String> {
-    let mut validators = std::collections::HashMap::new();
     let current_classification = schemas.current_version("e_vehicle_classification").unwrap();
-    catalog
+    let schema_id = |path: &str, data: &Value| {
+        let version = data
+            .get("schema_version")
+            .and_then(Value::as_str)
+            .unwrap_or(&current_classification);
+        Schemas::id(Catalog::kind(path), version)
+    };
+    let validators: std::collections::HashMap<String, _> = catalog
         .files
         .iter()
-        .flat_map(|(path, data)| {
-            let kind = Catalog::kind(path);
-            let version = data
-                .get("schema_version")
-                .and_then(Value::as_str)
-                .unwrap_or(&current_classification)
-                .to_string();
-            let id = Schemas::id(kind, &version);
-            let validator = validators
-                .entry(id.clone())
-                .or_insert_with(|| schemas.validator(&id));
-            let validator = match validator {
+        .map(|(path, data)| schema_id(path, data))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .map(|id| {
+            let validator = schemas.validator(&id);
+            (id, validator)
+        })
+        .collect();
+    catalog
+        .files
+        .par_iter()
+        .flat_map_iter(|(path, data)| {
+            let validator = match &validators[&schema_id(path, data)] {
                 Ok(validator) => validator,
                 Err(error) => return vec![format!("{path}: {error}")],
             };
@@ -102,12 +110,12 @@ fn every_file_matches_its_schema() {
 #[test]
 fn a_file_breaking_its_schema_is_reported() {
     let schemas = Schemas::load();
-    let catalog = Catalog::load();
-    let mut broken = catalog.files["components/tq/2025/hpr60.json"].clone();
+    let path = "components/tq/2025/hpr60.json";
+    let mut broken = parsed(&[path])[path].clone();
     broken["bogus"] = json!(1);
     broken["type"] = json!("hovercraft");
     let catalog = Catalog {
-        files: [("components/tq/2025/hpr60.json".to_string(), broken)].into(),
+        files: [(path.to_string(), broken)].into(),
     };
     let errors = schema_errors(&schemas, &catalog);
     assert!(
