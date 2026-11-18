@@ -24,4 +24,6 @@ A data problem gets fixed in Bike Book, not here.
 BIKEBOOK_DATA=<path to a bikebook checkout> cargo run --release --bin generate_catalog -- <output directory>
 ```
 
-Writes the catalog the viewer reads: `manifest.json`, naming an `index`, a `vocabulary` and a block of models per maker and first year, each file named by a hash of its content. A rerun into the same directory writes only what changed, and deletes a file a day after the manifest stops naming it.
+This writes the catalog the viewer at [bikeindex.org/bikebook](https://bikeindex.org/bikebook) reads. `manifest.json` names an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Each of those files is named by a hash of its content. A rerun into the same directory writes only what changed, and deletes a file a day after the manifest stops naming it.
+
+Some of the catalog's hand-written values aren't in bikebook yet: the viewer's kit, enum display names, currencies, wheel sizes, primary activities, vehicle types, filter labels and market rules. Until they are ([#3](https://github.com/bikeindex/bikebook_ci/issues/3)), they're copied from `catalog_snapshot/`.
