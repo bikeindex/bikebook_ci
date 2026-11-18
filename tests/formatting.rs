@@ -1,4 +1,5 @@
 use bikebook_data_checks::*;
+use rayon::prelude::*;
 use std::fs;
 
 /// Pretty-printed with two spaces and a trailing newline, as the catalog writes it. A file that only parses
@@ -11,7 +12,7 @@ fn every_json_file_is_pretty_printed() {
         .collect();
     assert!(paths.len() > 100, "found only {} JSON files", paths.len());
     let problems = paths
-        .iter()
+        .par_iter()
         .filter_map(|path| {
             let text = fs::read_to_string(root().join(path)).ok()?;
             match serde_json::from_str(&text) {

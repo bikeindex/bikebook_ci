@@ -6,4 +6,8 @@ publish = false
 
 [dependencies]
 jsonschema = { version = "0.61.2", default-features = false, features = ["idna"] }
+rayon = "1.12.0"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+[profile.test]
+opt-level = 3

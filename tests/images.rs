@@ -1,4 +1,5 @@
 use bikebook_data_checks::*;
+use rayon::prelude::*;
 use serde_json::{Value, json};
 
 fn image_problems(path: &str, data: &Value) -> Vec<String> {
@@ -20,8 +21,8 @@ fn image_problems(path: &str, data: &Value) -> Vec<String> {
 fn every_image_is_served_from_our_r2_buckets() {
     let problems = Catalog::load()
         .files
-        .iter()
-        .flat_map(|(path, data)| image_problems(path, data))
+        .par_iter()
+        .flat_map_iter(|(path, data)| image_problems(path, data))
         .collect();
     assert_none("images", problems);
 }
