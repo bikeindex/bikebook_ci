@@ -12,10 +12,6 @@
     "12_speed_pinion_gearbox_front": "12_speed_pinion",
     "18_speed_pinion_gearbox_front": "18_speed_pinion"
   },
-  "family_short_names": {
-    "Road Biking": "Road",
-    "Track Racing": "Track"
-  },
   "primary_activities": {
     "Dirt Travel": 100
   }

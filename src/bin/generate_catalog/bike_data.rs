@@ -109,6 +109,11 @@ impl BikeData {
     /// Bike Index's ordering: by priority, then as created, a flavor once under each of its families
     pub fn primary_activities(&self) -> Vec<Activity> {
         let rows = self.rows("primary_activities.csv");
+        let short_names: HashMap<&str, &str> = rows
+            .iter()
+            .filter(|row| row["flavor"].trim().is_empty())
+            .map(|row| (row["families"].trim(), row["short_name"].as_str()))
+            .collect();
         let mut created: Vec<(&str, Option<&str>, i64)> = rows
             .iter()
             .flat_map(|row| {
@@ -149,7 +154,7 @@ impl BikeData {
             .into_iter()
             .map(|(name, family, _)| {
                 let name = family.map_or(name.to_string(), |family| {
-                    format!("{}: {name}", self.short_name(family))
+                    format!("{}: {name}", short_names[family])
                 });
                 Activity {
                     slug: self.slugify(&name),
@@ -158,12 +163,6 @@ impl BikeData {
                 }
             })
             .collect()
-    }
-
-    fn short_name<'a>(&'a self, family: &'a str) -> &'a str {
-        self.additions["family_short_names"][family]
-            .as_str()
-            .unwrap_or_else(|| family.split('(').next().unwrap().trim_end())
     }
 
     /// Each name bike_data gives a vehicle model field's slugs, by field
@@ -299,7 +298,7 @@ mod tests {
     fn primary_activities_order_by_priority_and_name_flavors_by_family() {
         let data = bike_data(&[(
             "primary_activities.csv",
-            "flavor,families,priority\n,Road Biking,590\n,MTB (Mountain Biking),595\nBikepacking,MTB (Mountain Biking) & Road Biking,280\nBike Polo,,401\n",
+            "flavor,families,priority,short_name\n,Road Biking,590,Road\n,MTB (Mountain Biking),595,MTB\nBikepacking,MTB (Mountain Biking) & Road Biking,280,\nBike Polo,,401,Bike Polo\n",
         )]);
         let activities = data.primary_activities();
         let activities: Vec<[&str; 3]> = activities
@@ -337,7 +336,7 @@ mod tests {
     fn primary_activities_need_a_priority() {
         bike_data(&[(
             "primary_activities.csv",
-            "flavor,families,priority\nBike Polo,,\n",
+            "flavor,families,priority,short_name\nBike Polo,,,Bike Polo\n",
         )])
         .primary_activities();
     }
