@@ -14,7 +14,7 @@ Every file pretty-printed with two spaces and a trailing newline, its keys in it
 
 # Code
 
-Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check. Format with `cargo fmt` (`rustfmt.toml`); clippy runs with `-D warnings`.
+Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check, and `src/bin/generate_catalog.rs` writes the published catalog. Format with `cargo fmt` (`rustfmt.toml`); clippy runs with `-D warnings`.
 
 - **Each check over the whole catalog has a test beside it that breaks a sample on purpose and asserts the check reports it.** A check that passes on every file proves nothing until something has seen it fail.
 - **Every test answers "what bug does this fail on?"** If you can't name a plausible wrong edit that turns it red, delete it — one that only restates the code costs an edit on every change and catches nothing.

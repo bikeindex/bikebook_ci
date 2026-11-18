@@ -5,9 +5,11 @@ edition = "2024"
 publish = false
 
 [dependencies]
+humantime = "2.4.0"
 jsonschema = { version = "0.61.2", default-features = false, features = ["idna"] }
 rayon = "1.12.0"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.11.1"
 
 [profile.test]
 opt-level = 3

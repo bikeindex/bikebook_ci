@@ -17,3 +17,11 @@ BIKEBOOK_DATA=<path to a bikebook checkout> cargo test --locked --no-fail-fast
 ```
 
 A data problem gets fixed in Bike Book, not here.
+
+## Generating the catalog
+
+```sh
+BIKEBOOK_DATA=<path to a bikebook checkout> cargo run --release --bin generate_catalog -- <output directory>
+```
+
+Writes the catalog the viewer reads: `manifest.json`, naming an `index`, a `vocabulary` and a block of models per maker and first year, each file named by a hash of its content. A rerun into the same directory writes only what changed, and deletes a file a day after the manifest stops naming it.
