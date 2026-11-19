@@ -7,6 +7,7 @@ mod ruby;
 
 use bike_data::BikeData;
 use bikebook_data_checks::*;
+use flate2::{Compression, write::GzEncoder};
 use index::Row;
 use markets::{Classifications, Markets};
 use md5::{Digest, Md5};
@@ -14,6 +15,7 @@ use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -111,7 +113,7 @@ fn main() {
                 text + id.as_str() + &jsonb_text(&models[*id])
             });
             let path = format!("models/{block}.{}.json", digest(&models_text));
-            write_new(&output, &stored, &path, &body.to_string());
+            write_new(&output, &path, &body.to_string());
             (block, path)
         })
         .collect();
@@ -208,7 +210,7 @@ fn main() {
         ("comparison", comparison),
     ]
     .into_iter()
-    .map(|(name, body)| (name, write_hashed(&output, &stored, name, &body)))
+    .map(|(name, body)| (name, write_hashed(&output, name, &body)))
     .collect();
 
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
@@ -218,7 +220,7 @@ fn main() {
         .iter()
         .for_each(|(name, path)| manifest[name] = json!(path));
     manifest["blocks"] = json!(blocks);
-    write(&output, "manifest.json", &manifest);
+    write(&output, "manifest.json", &gzip(&manifest.to_string()));
 
     let referenced: BTreeSet<&String> = files
         .iter()
@@ -373,10 +375,10 @@ fn stored_paths(root: &Path) -> Vec<String> {
 }
 
 /// Named by its content, so a client caches it for good
-fn write_hashed(root: &Path, stored: &BTreeSet<String>, name: &str, body: &Value) -> String {
+fn write_hashed(root: &Path, name: &str, body: &Value) -> String {
     let text = body.to_string();
     let path = format!("{name}.{}.json", digest(&text));
-    write_new(root, stored, &path, &text);
+    write_new(root, &path, &text);
     path
 }
 
@@ -388,23 +390,27 @@ fn digest(text: &str) -> String {
         .collect()
 }
 
-/// A previous run's file under the same hashed name holds the same
-fn write_new(root: &Path, stored: &BTreeSet<String>, path: &str, text: &str) {
-    if !stored.contains(path) {
-        write_text(root, path, text);
+/// A previous run's file under the same hashed name holds the same, unless it's from before the catalog was gzipped
+fn write_new(root: &Path, path: &str, text: &str) {
+    let gzipped = fs::read(root.join(path)).is_ok_and(|bytes| bytes.starts_with(&[0x1f, 0x8b]));
+    if !gzipped {
+        write(root, path, &gzip(text));
     }
 }
 
-fn write(root: &Path, path: &str, body: &Value) {
-    write_text(root, path, &body.to_string())
+/// Stored as the bucket serves it, since each run starts from a download of the bucket
+fn gzip(text: &str) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(text.as_bytes()).unwrap();
+    encoder.finish().unwrap()
 }
 
 /// Renamed into place, since a later run trusts any file already under a hashed name
-fn write_text(root: &Path, path: &str, text: &str) {
+fn write(root: &Path, path: &str, bytes: &[u8]) {
     let file = root.join(path);
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     let temporary = file.with_extension(format!("{}.tmp", std::process::id()));
-    fs::write(&temporary, text).unwrap();
+    fs::write(&temporary, bytes).unwrap();
     fs::rename(temporary, file).unwrap();
 }
 
@@ -438,7 +444,11 @@ fn retire(root: &Path, unreferenced: BTreeSet<&String>) {
             )
         })
         .collect();
-    write(root, "retired.json", &Value::Object(kept));
+    write(
+        root,
+        "retired.json",
+        Value::Object(kept).to_string().as_bytes(),
+    );
 }
 
 #[cfg(test)]
@@ -479,14 +489,39 @@ mod tests {
     }
 
     #[test]
+    fn write_new_gzips_over_an_uncompressed_file_and_keeps_a_gzipped_one() {
+        use std::io::Read;
+        let root = std::env::temp_dir().join(format!("write_new_{}", std::process::id()));
+        write(&root, "plain.json", b"{}");
+        write(&root, "gzipped.json", &gzip("{}"));
+        ["plain.json", "gzipped.json"]
+            .iter()
+            .for_each(|path| write_new(&root, path, "[]"));
+        let read = |path: &str| {
+            let mut text = String::new();
+            flate2::read::GzDecoder::new(fs::File::open(root.join(path)).unwrap())
+                .read_to_string(&mut text)
+                .unwrap();
+            text
+        };
+        assert_eq!(read("plain.json"), "[]");
+        assert_eq!(read("gzipped.json"), "{}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn retire_deletes_only_what_has_been_unreferenced_past_retention() {
         let root = std::env::temp_dir().join(format!("generate_catalog_{}", std::process::id()));
         let long_ago =
             humantime::format_rfc3339_seconds(SystemTime::now() - RETENTION * 2).to_string();
-        write(&root, "retired.json", &json!({"old.json": long_ago}));
+        write(
+            &root,
+            "retired.json",
+            json!({"old.json": long_ago}).to_string().as_bytes(),
+        );
         ["old.json", "recent.json"]
             .iter()
-            .for_each(|path| write_text(&root, path, "{}"));
+            .for_each(|path| write(&root, path, b"{}"));
         let (old, recent) = ("old.json".to_string(), "recent.json".to_string());
         retire(&root, BTreeSet::from([&old, &recent]));
         assert!(!root.join("old.json").exists());
