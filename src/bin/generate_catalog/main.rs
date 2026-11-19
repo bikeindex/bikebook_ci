@@ -17,8 +17,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// The published files' layout, which the viewer checks: raise it, and the viewer's, whenever that layout changes
-const FORMAT: u64 = 3;
+/// The published files' layouts, oldest first, each with its own manifest. A new one is published beside the one before
+/// it until every reader has moved to it: see the format-update skill
+const FORMATS: [u64; 2] = [3, 4];
 /// How long a file outlives the last manifest naming it, for a client still holding an older manifest
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -91,29 +92,7 @@ fn main() {
         .collect();
     let stored: BTreeSet<String> = stored_paths(&output)
         .into_iter()
-        .filter(|path| path != "manifest.json" && path != "retired.json")
-        .collect();
-
-    let blocks: BTreeMap<String, String> = blocks(&models)
-        .into_par_iter()
-        .map(|(block, ids)| {
-            let block_models: Map<String, Value> = ids
-                .iter()
-                .map(|id| (id.to_string(), jsonb_order(&models[*id])))
-                .collect();
-            let block_incomplete: Map<String, Value> = ids
-                .iter()
-                .filter_map(|id| Some((id.to_string(), json!(incomplete.get(id)?))))
-                .collect();
-            let body =
-                json!({"format": FORMAT, "models": block_models, "incomplete": block_incomplete});
-            let models_text = ids.iter().fold(FORMAT.to_string(), |text, id| {
-                text + id.as_str() + &jsonb_text(&models[*id])
-            });
-            let path = format!("models/{block}.{}.json", digest(&models_text));
-            write_new(&output, &stored, &path, &body.to_string());
-            (block, path)
-        })
+        .filter(|path| path != "retired.json")
         .collect();
 
     let rows: Vec<Row> = models
@@ -171,73 +150,183 @@ fn main() {
             })
             .collect(),
     );
-    let index = json!({
-        "format": FORMAT,
-        "manufacturers": manufacturers(&rows),
-        "primary_activities": activities.iter().map(|activity| json!({"slug": activity.slug, "name": activity.name, "family": activity.family})).collect::<Vec<_>>(),
-        "vehicle_types": names["type"].as_object().unwrap().iter().map(|(slug, name)| json!({"slug": slug, "name": name})).collect::<Vec<_>>(),
-        "filter_options": index_snapshot["filter_options"],
-        "stock_photos": index::PHOTO_URL,
-        "models": rows.par_iter().map(|row| row.to_json(&markets, &classifications)).collect::<Vec<_>>(),
-    });
-    let vocabulary = json!({
-        "format": FORMAT,
-        "names": names,
-        "e_vehicle_classifications": records,
-        "currencies": vocabulary_snapshot["currencies"],
-        "wheel_sizes": bike_data.wheel_sizes(),
-    });
-    let kit = json!({"format": FORMAT, "kit": kit});
-    let comparison_fields: Map<String, Value> = comparison::FIELDS
+    let index_rows: Vec<Value> = rows
+        .par_iter()
+        .map(|row| row.to_json(&markets, &classifications))
+        .collect();
+    let variants = market_variants(&catalog);
+    let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
+    let referenced: BTreeSet<String> = FORMATS
         .iter()
-        .map(|field| {
-            (
-                field.to_string(),
-                comparisons
-                    .iter()
-                    .map(|each| each.get(*field).cloned().unwrap_or(Value::Null))
-                    .collect(),
-            )
+        .flat_map(|&format| {
+            let blocks = write_blocks(&output, &stored, format, &models, &incomplete);
+            let (index_models, listed_comparisons) =
+                listed(format, &index_rows, &comparisons, &variants);
+            let index = json!({
+                "format": format,
+                "manufacturers": manufacturers(&rows),
+                "primary_activities": activities.iter().map(|activity| json!({"slug": activity.slug, "name": activity.name, "family": activity.family})).collect::<Vec<_>>(),
+                "vehicle_types": names["type"].as_object().unwrap().iter().map(|(slug, name)| json!({"slug": slug, "name": name})).collect::<Vec<_>>(),
+                "filter_options": index_snapshot["filter_options"],
+                "stock_photos": index::PHOTO_URL,
+                "models": index_models,
+            });
+            let vocabulary = json!({
+                "format": format,
+                "names": names,
+                "e_vehicle_classifications": records,
+                "currencies": vocabulary_snapshot["currencies"],
+                "wheel_sizes": bike_data.wheel_sizes(),
+            });
+            let comparison_fields: Map<String, Value> = comparison::FIELDS
+                .iter()
+                .map(|field| {
+                    (
+                        field.to_string(),
+                        listed_comparisons
+                            .iter()
+                            .map(|each| each.get(*field).cloned().unwrap_or(Value::Null))
+                            .collect(),
+                    )
+                })
+                .collect();
+            let files: Vec<(&str, String)> = [
+                ("index", index),
+                ("vocabulary", vocabulary),
+                ("kit", json!({"format": format, "kit": kit})),
+                (
+                    "comparison",
+                    json!({"format": format, "fields": comparison_fields}),
+                ),
+            ]
+            .into_iter()
+            .map(|(name, body)| (name, write_hashed(&output, &stored, name, &body)))
+            .collect();
+            let mut manifest = json!({"format": format, "published_at": published_at, "schema_version": schema_version});
+            files
+                .iter()
+                .for_each(|(name, path)| manifest[name] = json!(path));
+            manifest["blocks"] = json!(blocks);
+            let manifests = manifest_paths(format);
+            manifests
+                .iter()
+                .for_each(|path| write(&output, path, &manifest));
+            files
+                .into_iter()
+                .map(|(_, path)| path)
+                .chain(blocks.into_values())
+                .chain(manifests)
+                .collect::<Vec<_>>()
         })
         .collect();
-    let comparison = json!({"format": FORMAT, "fields": comparison_fields});
-    let files: Vec<(&str, String)> = [
-        ("index", index),
-        ("vocabulary", vocabulary),
-        ("kit", kit),
-        ("comparison", comparison),
-    ]
-    .into_iter()
-    .map(|(name, body)| (name, write_hashed(&output, &stored, name, &body)))
-    .collect();
 
-    let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
-    let mut manifest =
-        json!({"format": FORMAT, "published_at": published_at, "schema_version": schema_version});
-    files
-        .iter()
-        .for_each(|(name, path)| manifest[name] = json!(path));
-    manifest["blocks"] = json!(blocks);
-    write(&output, "manifest.json", &manifest);
-
-    let referenced: BTreeSet<&String> = files
-        .iter()
-        .map(|(_, path)| path)
-        .chain(blocks.values())
-        .collect();
     retire(
         &output,
         stored
             .iter()
-            .filter(|path| !referenced.contains(path))
+            .filter(|path| !referenced.contains(*path))
             .collect(),
     );
     println!(
-        "{} models in {} blocks, to {}",
+        "{} models in {} blocks, in formats {FORMATS:?}, to {}",
         models.len(),
-        blocks.len(),
+        blocks(&models).len(),
         output.display()
     );
+}
+
+/// Format 3's readers read `manifest.json`, from before each format had its own
+fn manifest_paths(format: u64) -> Vec<String> {
+    let own = format!("manifest.{format}.json");
+    if format == 3 {
+        vec![own, "manifest.json".to_string()]
+    } else {
+        vec![own]
+    }
+}
+
+/// Each model's blocks, by `<maker>/<first year>`, named by their content
+fn write_blocks(
+    output: &Path,
+    stored: &BTreeSet<String>,
+    format: u64,
+    models: &BTreeMap<String, Value>,
+    incomplete: &BTreeMap<&String, Vec<String>>,
+) -> BTreeMap<String, String> {
+    blocks(models)
+        .into_par_iter()
+        .map(|(block, ids)| {
+            let block_models: Map<String, Value> = ids
+                .iter()
+                .map(|id| (id.to_string(), jsonb_order(&models[*id])))
+                .collect();
+            let block_incomplete: Map<String, Value> = ids
+                .iter()
+                .filter_map(|id| Some((id.to_string(), json!(incomplete.get(id)?))))
+                .collect();
+            let body =
+                json!({"format": format, "models": block_models, "incomplete": block_incomplete});
+            let models_text = ids.iter().fold(format.to_string(), |text, id| {
+                text + id.as_str() + &jsonb_text(&models[*id])
+            });
+            let path = format!("models/{block}.{}.json", digest(&models_text));
+            write_new(output, stored, &path, &body.to_string());
+            (block, path)
+        })
+        .collect()
+}
+
+/// Each base's market variants: the overlays over it that state their own markets
+fn market_variants(catalog: &Catalog) -> BTreeMap<String, Vec<String>> {
+    catalog
+        .files
+        .iter()
+        .filter(|(path, data)| {
+            path.starts_with("vehicle_models/") && !ruby::blank(data.get("markets"))
+        })
+        .filter_map(|(path, data)| {
+            Some((
+                data.get("base")?.as_str()?.to_string(),
+                Catalog::expected_id(path),
+            ))
+        })
+        .fold(BTreeMap::new(), |mut variants, (base, id)| {
+            variants.entry(base).or_insert_with(Vec::new).push(id);
+            variants
+        })
+}
+
+/// The index's models, and their comparisons in step with them. From format 4 a market variant isn't a row of its own
+/// but one of its base's `variants`, so a lookup can pick the one sold in the registrant's country
+fn listed<'a>(
+    format: u64,
+    rows: &[Value],
+    comparisons: &'a [Map<String, Value>],
+    variants: &BTreeMap<String, Vec<String>>,
+) -> (Vec<Value>, Vec<&'a Map<String, Value>>) {
+    if format < 4 {
+        return (rows.to_vec(), comparisons.iter().collect());
+    }
+    let markets: BTreeMap<&str, &Value> = rows
+        .iter()
+        .map(|row| (row["id"].as_str().unwrap(), &row["markets"]))
+        .collect();
+    let variant_ids: BTreeSet<&str> = variants.values().flatten().map(String::as_str).collect();
+    rows.iter()
+        .zip(comparisons)
+        .filter(|(row, _)| !variant_ids.contains(row["id"].as_str().unwrap()))
+        .map(|(row, comparison)| {
+            let listed: Vec<Value> = variants
+                .get(row["id"].as_str().unwrap())
+                .into_iter()
+                .flatten()
+                .map(|id| json!({"id": id, "markets": markets[id.as_str()]}))
+                .collect();
+            let mut row = row.clone();
+            row["variants"] = json!(listed);
+            (row, comparison)
+        })
+        .unzip()
 }
 
 /// Every vehicle model by id, an overlay resolved over its base
@@ -476,6 +565,65 @@ mod tests {
             ["trek/2024", "trek/2025"]
         );
         assert_eq!(blocks["trek/2024"].len(), 2);
+    }
+
+    #[test]
+    fn a_market_variant_is_an_overlay_stating_its_markets() {
+        let catalog = Catalog {
+            files: BTreeMap::from([
+                (
+                    "vehicle_models/acme/2025/one_eu.json".to_string(),
+                    json!({"base": "m/acme/2025/one", "markets": ["EU"]}),
+                ),
+                (
+                    "vehicle_models/acme/2025/one_red.json".to_string(),
+                    json!({"base": "m/acme/2025/one"}),
+                ),
+                (
+                    "vehicle_models/acme/2025/two_gb.json".to_string(),
+                    json!({"markets": ["GB"]}),
+                ),
+            ]),
+        };
+        assert_eq!(
+            market_variants(&catalog),
+            BTreeMap::from([(
+                "m/acme/2025/one".to_string(),
+                vec!["m/acme/2025/one_eu".to_string()]
+            )])
+        );
+    }
+
+    #[test]
+    fn listed_puts_a_market_variant_on_its_base_from_format_4() {
+        let rows = [
+            json!({"id": "a", "markets": ["US"]}),
+            json!({"id": "a_eu", "markets": ["EU"]}),
+            json!({"id": "b", "markets": ["US"]}),
+        ];
+        let comparisons: Vec<Map<String, Value>> = ["a", "a_eu", "b"]
+            .iter()
+            .map(|id| json!({"of": id}).as_object().unwrap().clone())
+            .collect();
+        let variants = BTreeMap::from([("a".to_string(), vec!["a_eu".to_string()])]);
+        let (legacy, legacy_comparisons) = listed(3, &rows, &comparisons, &variants);
+        assert_eq!(legacy, rows);
+        assert_eq!(legacy_comparisons.len(), 3);
+        let (listed, listed_comparisons) = listed(4, &rows, &comparisons, &variants);
+        assert_eq!(
+            listed,
+            [
+                json!({"id": "a", "markets": ["US"], "variants": [{"id": "a_eu", "markets": ["EU"]}]}),
+                json!({"id": "b", "markets": ["US"], "variants": []}),
+            ]
+        );
+        assert_eq!(
+            listed_comparisons
+                .iter()
+                .map(|comparison| &comparison["of"])
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
     }
 
     #[test]

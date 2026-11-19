@@ -52,15 +52,18 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: aws s3 sync --only-show-errors "$DESTINATION" "$CATALOG"
       - run: target/release/generate_catalog "$CATALOG"
-      # The new files go up before the manifest naming them, and expired ones are deleted after it
+      # The new files go up before the manifests naming them, and expired ones, a dropped format's manifests among them,
+      # are deleted after
       - name: Upload the catalog
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           upload() { aws s3 "$@" --only-show-errors --content-type application/json; }
-          upload sync "$CATALOG" "$DESTINATION" --exclude manifest.json --exclude retired.json \
+          upload sync "$CATALOG" "$DESTINATION" --exclude "manifest*.json" --exclude retired.json \
             --cache-control "public, max-age=31536000, immutable"
-          upload cp "$CATALOG/manifest.json" "$DESTINATION/manifest.json" --cache-control "public, max-age=60"
+          for manifest in "$CATALOG"/manifest*.json; do
+            upload cp "$manifest" "$DESTINATION/${manifest##*/}" --cache-control "public, max-age=60"
+          done
           upload cp "$CATALOG/retired.json" "$DESTINATION/retired.json" --cache-control no-store
-          aws s3 sync --only-show-errors --delete "$CATALOG" "$DESTINATION" --exclude manifest.json --exclude retired.json
+          aws s3 sync --only-show-errors --delete "$CATALOG" "$DESTINATION" --exclude retired.json

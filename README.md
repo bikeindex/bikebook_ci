@@ -22,7 +22,11 @@ A data problem gets fixed in Bike Book, not here.
 
 The catalog is the one the viewer at [bikeindex.org/bikebook](https://bikeindex.org/bikebook) reads. It's published only by GitHub Actions, never from a local run.
 
-`manifest.json` names an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after the manifest stops naming it.
+Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Format 3's is also at `manifest.json`, where its readers fetch it. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
+
+A change to the published layout is a new format, published beside the one before it until every reader has moved to it. `.claude/skills/format-update` has the steps.
+
+Format 4 lists a model's market variants, the overlays over it that state their own `markets`, as its `variants` (each an `id` and its `markets`) rather than as index rows of their own. A lookup picks the variant sold in the registrant's country, and the model itself when none is.
 
 Display names, primary activities (with their families, priorities and short names), vehicle types, wheel sizes and component groups come from [bike_data](https://github.com/bikeindex/bike_data)'s latest commit, fetched on every run. A bike_data change is therefore published without a change here. If bike_data is missing a value, the publish stops.
 
@@ -34,7 +38,7 @@ Bike Book's own publish workflow runs on each push to its `main`, separately fro
 
 1. It runs the checks against that commit.
 2. It downloads the published catalog from R2 and runs `generate_catalog` over it.
-3. It uploads the new files, then the manifest that names them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
+3. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
 
 **The R2 keys are only ever available here.** A workflow that Bike Book calls runs as Bike Book's run, with Bike Book's secrets. So the keys live in this repository's `catalog` environment, which only `main` can use, and only the download and upload steps get them.
 
