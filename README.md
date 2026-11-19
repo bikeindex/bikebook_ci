@@ -54,5 +54,11 @@ Setup:
   - Variables `R2_CATALOG_BUCKET` (`bikebook-catalog`) and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`).
   - Secret `CLOUDFLARE_PURGE_TOKEN`, from a Cloudflare API token with Zone > Cache Purge on the `bikeindex.org` zone only.
   - Variable `CLOUDFLARE_ZONE_ID`, that zone's ID.
-- **In Cloudflare:** a Cache Rule for hostname `bikebook-catalog.bikeindex.org` that makes it eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back.
+- **In Cloudflare:** a Cache Rule that makes the catalog eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back. Its expression:
+
+  ```
+  (http.host eq "bikebook-catalog.bikeindex.org" and any(http.request.headers["accept-encoding"][*] contains "gzip"))
+  ```
+
+  A request that doesn't accept gzip gets the file decoded, and if it filled the cache, the decoded copy would be what every browser gets from there on: `no-transform` stops Cloudflare compressing it. So only a request that accepts gzip can fill it, and any other goes to R2.
 - **In Bike Book:** a secret `CATALOG_PUBLISH_TOKEN`, from a fine-grained token for this repository only, with "Actions: Read and write" and nothing else.
