@@ -37,6 +37,7 @@ Bike Book's own publish workflow runs on each push to its `main`, separately fro
 1. It runs the checks against that commit.
 2. It downloads the published catalog from R2 and runs `generate_catalog` over it.
 3. It uploads the new files, then the manifest that names them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
+4. It purges the manifest from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and the manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
 
 **The R2 keys are only ever available here.** A workflow that Bike Book calls runs as Bike Book's run, with Bike Book's secrets. So the keys live in this repository's `catalog` environment, which only `main` can use, and only the download and upload steps get them.
 
@@ -47,4 +48,7 @@ Setup:
 - **Here:** an environment named `catalog`, deployable only from `main`, holding:
   - Secrets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from an R2 API token with Object Read & Write on the catalog bucket only.
   - Variables `R2_CATALOG_BUCKET` (`bikebook-catalog`) and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`).
+  - Secret `CLOUDFLARE_PURGE_TOKEN`, from a Cloudflare API token with Zone > Cache Purge on the `bikeindex.org` zone only.
+  - Variable `CLOUDFLARE_ZONE_ID`, that zone's ID.
+- **In Cloudflare:** a Cache Rule for hostname `bikebook-catalog.bikeindex.org` that makes it eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back.
 - **In Bike Book:** a secret `CATALOG_PUBLISH_TOKEN`, from a fine-grained token for this repository only, with "Actions: Read and write" and nothing else.
