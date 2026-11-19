@@ -1,11 +1,11 @@
 ---
 name: format-update
-description: Change the layout of the published catalog (a field added, removed, renamed or reshaped in the index, a model block, the vocabulary, the kit or the comparison, or a file split or added) by publishing a new format beside the old one, then dropping the old one once its readers have moved. Use whenever a change to generate_catalog would change what a reader of the published files sees, or when asked to bump, add or drop a catalog format.
+description: Change the layout of the published catalog (a field removed, renamed or reshaped in the index, a model block, the vocabulary, the kit or the comparison, rows dropped or merged, or a file split or added) by publishing a new format beside the old one, then dropping the old one once its readers have moved. Use whenever a change to generate_catalog would change what a reader of the published files sees, or when asked to bump, add or drop a catalog format.
 ---
 
 # Updating the catalog's format
 
-Readers check the `format` of what they fetch. Changing a format in place breaks every reader still expecting it, from the moment the publish lands until each reader ships. So a layout change always takes two PRs:
+Readers check the `format` of what they fetch. Changing a format in place breaks every reader still expecting it, from the moment the publish lands until each reader ships. A new field that readers can ignore isn't a layout change, and is published in the current format. Any other layout change takes two PRs:
 
 1. **Publish both.** The new format is published beside the old one, each under its own manifest.
 2. **Drop the old one.** This happens only once every reader has shipped on the new format and works there. Open this PR only after the user says so, not when the first PR merges.

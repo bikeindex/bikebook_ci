@@ -68,6 +68,7 @@ impl Row<'_> {
             "manufacturer_name": text("manufacturer"),
             "model_group": text("model_group"),
             "handlebar_type": text("handlebar_type"),
+            "target_riders": if blank(vehicle.get("target_riders")) { &Value::Null } else { &vehicle["target_riders"] },
             "photo": photo,
             "incomplete": self.incomplete,
         })
@@ -203,6 +204,23 @@ mod tests {
             electric(&json!({"propulsion": ["human", "throttle"]})),
             json!(true)
         );
+    }
+
+    #[test]
+    fn target_riders_is_null_when_blank() {
+        let markets = Markets::load(&json!({"$defs": {"market": {"enum": []}}}));
+        let classifications = Classifications::new(Default::default());
+        let riders = |vehicle: Value| {
+            Row {
+                id: "m/x/2026/y",
+                vehicle: &vehicle,
+                incomplete: false,
+            }
+            .to_json(&markets, &classifications)["target_riders"]
+                .clone()
+        };
+        assert_eq!(riders(json!({"target_riders": ["kid"]})), json!(["kid"]));
+        assert_eq!(riders(json!({"target_riders": []})), Value::Null);
     }
 
     #[test]
