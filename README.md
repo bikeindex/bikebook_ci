@@ -24,11 +24,11 @@ A data problem gets fixed in Bike Book, not here.
 
 The catalog is the one the viewer at [bikeindex.org/bikebook](https://bikeindex.org/bikebook) reads. It's published only by GitHub Actions, never from a local run.
 
-Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Format 3's is also at `manifest.json`, where its readers fetch it. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
+Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
 
 A change to the published layout is a new format, published beside the one before it until every reader has moved to it. `.claude/skills/format-update` has the steps.
 
-Format 4 lists a model's market variants, the overlays over it that state their own `markets`, as its `variants` (each an `id` and its `markets`) rather than as index rows of their own. A lookup picks the variant sold in the registrant's country, and the model itself when none is.
+The index lists a model's market variants, the overlays over it that state their own `markets`, as its `variants` (each an `id` and its `markets`) rather than as rows of their own. A lookup picks the variant sold in the registrant's country, and the model itself when none is.
 
 Display names, primary activities (with their families, priorities and short names), vehicle types, wheel sizes and component groups come from [bike_data](https://github.com/bikeindex/bike_data)'s latest commit, fetched on every run. A bike_data change is therefore published without a change here. If bike_data is missing a value, the publish stops.
 
