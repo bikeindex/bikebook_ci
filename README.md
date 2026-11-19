@@ -9,7 +9,8 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 - **Schemas:** each file is valid against the schema its `schema_version` names. An overlay must be valid both as stored and once resolved over its base.
 - **Catalog:** each file's `id` matches its path, every overlay's base and every model's motors exist, and photos are keyed by the file's id.
 - **Images:** every image is served from `https://bikebook.bikeindex.org/`.
-- **Schema changes:** a branch that changes a schema edits no data file but the vehicles in [`representative_vehicles.csv`](representative_vehicles.csv), the components they link and those components' bases. It's diffed from `BIKEBOOK_BASE`, `origin/main` unless set. It's a separate check, the `schema_changes` job, which a plain `cargo test` leaves out: run it with `cargo test --locked --test schema_changes`.
+- **Representative vehicles:** Bike Book's `representative_vehicles.csv` lists vehicle models in the catalog, in alphabetical order.
+- **Schema changes:** a branch that changes a schema edits no data file but the vehicles its base's `representative_vehicles.csv` lists, the components they link and those components' bases. This is a check of its own, the `schema_changes` job, which runs [`bin/check_schema_change`](bin/check_schema_change) on the commit under test. To run it on a branch, from a Bike Book checkout: `git fetch origin main && <bikebook_ci>/bin/check_schema_change . origin/main HEAD`.
 
 ## Running the checks
 
