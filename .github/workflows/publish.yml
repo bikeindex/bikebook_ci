@@ -52,27 +52,31 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: aws s3 sync --only-show-errors "$DESTINATION" "$CATALOG"
       - run: target/release/generate_catalog "$CATALOG"
-      # The new files go up before the manifest naming them, and expired ones are deleted after it. Each is gzip but
-      # retired.json, and no-transform stops Cloudflare recompressing it worse for a browser that takes brotli.
-      # Cloudflare keeps the manifest for s-maxage, which has to stay well under RETENTION in generate_catalog: when
-      # the purge below fails, the edge goes on serving an old manifest, and the files it names have to still be there
+      # The new files go up before the manifests naming them, and expired ones, a dropped format's manifests among them,
+      # are deleted after. Each is gzip but retired.json, and no-transform stops Cloudflare recompressing it worse for a
+      # browser that takes brotli. Cloudflare keeps a manifest for s-maxage, which has to stay well under RETENTION in
+      # generate_catalog: when the purge below fails, the edge goes on serving an old manifest, and the files it names
+      # have to still be there
       - name: Upload the catalog
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           upload() { aws s3 "$@" --only-show-errors --content-type application/json; }
-          upload sync "$CATALOG" "$DESTINATION" --exclude manifest.json --exclude retired.json --content-encoding gzip \
+          upload sync "$CATALOG" "$DESTINATION" --exclude "manifest*.json" --exclude retired.json --content-encoding gzip \
             --cache-control "public, max-age=31536000, immutable, no-transform"
-          upload cp "$CATALOG/manifest.json" "$DESTINATION/manifest.json" --content-encoding gzip \
-            --cache-control "public, max-age=60, s-maxage=3600, no-transform"
+          for manifest in "$CATALOG"/manifest*.json; do
+            upload cp "$manifest" "$DESTINATION/${manifest##*/}" --content-encoding gzip \
+              --cache-control "public, max-age=60, s-maxage=3600, no-transform"
+          done
           upload cp "$CATALOG/retired.json" "$DESTINATION/retired.json" --cache-control no-store
-          aws s3 sync --only-show-errors --delete "$CATALOG" "$DESTINATION" --exclude manifest.json --exclude retired.json
-      - name: Purge the manifest from Cloudflare's cache
+          aws s3 sync --only-show-errors --delete "$CATALOG" "$DESTINATION" --exclude retired.json
+      - name: Purge the manifests from Cloudflare's cache
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_TOKEN }}
           ZONE: ${{ vars.CLOUDFLARE_ZONE_ID }}
         run: |
+          files=$(cd "$CATALOG" && ls manifest*.json | jq -Rnc '{files: [inputs | "https://bikebook-catalog.bikeindex.org/catalog/" + .]}')
           curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/zones/$ZONE/purge_cache" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            --json '{"files": ["https://bikebook-catalog.bikeindex.org/catalog/manifest.json"]}'
+            --json "$files"
