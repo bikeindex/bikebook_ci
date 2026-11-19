@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    secrets:
+      catalog_publish_token:
+        description: Can start this repo's publish workflow, and nothing else
+        required: false
 
 permissions:
   contents: read
@@ -43,3 +47,31 @@ jobs:
           until [ -f "$RUNNER_TEMP/catalog_status" ]; do sleep 1; done
           exit "$(cat "$RUNNER_TEMP/catalog_status")"
       - run: cargo test --locked --no-fail-fast
+
+  # Starts the publish workflow, which runs in this repo with the R2 keys, and fails if the catalog doesn't publish
+  publish:
+    needs: test
+    if: github.repository == 'bikeindex/bikebook' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the catalog
+        env:
+          GH_TOKEN: ${{ secrets.catalog_publish_token }}
+          GH_REPO: bikeindex/bikebook_ci
+          REQUEST: ${{ github.sha }} (run ${{ github.run_id }}, attempt ${{ github.run_attempt }})
+        run: |
+          gh workflow run publish.yml --ref main -f request="$REQUEST"
+          runs() { gh run list --workflow publish.yml --limit 50 --json databaseId,displayTitle --jq "$1"; }
+          for attempt in $(seq 60); do
+            run=$(runs 'map(select(.displayTitle == "Publish the catalog for " + env.REQUEST))[0].databaseId // empty')
+            [ -n "$run" ] && break
+            sleep 5
+          done
+          [ -n "$run" ] || { echo "The publish run didn't start"; exit 1; }
+          until gh run watch "$run" --interval 30 --exit-status > /dev/null; do
+            echo "https://github.com/$GH_REPO/actions/runs/$run"
+            [ "$(gh run view "$run" --json conclusion --jq .conclusion)" = cancelled ] || exit 1
+            # A later push's run replaces a queued one, and publishes this commit too
+            run=$(runs "map(.databaseId | select(. > $run)) | min // empty")
+            [ -n "$run" ] || exit 1
+          done
