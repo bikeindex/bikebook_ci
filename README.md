@@ -10,7 +10,7 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 - **Catalog:** each file's `id` matches its path, every overlay's base and every model's motors exist, and photos are keyed by the file's id.
 - **Images:** every image is served from `https://bikebook.bikeindex.org/`.
 - **Representative vehicles:** Bike Book's `representative_vehicles.csv` lists vehicle models in the catalog, in alphabetical order.
-- **Schema changes:** a branch that changes a schema edits no data file but the vehicles its base's `representative_vehicles.csv` lists, the components they link and those components' bases. This is a check of its own, the `schema_changes` job, which runs [`bin/check_schema_change`](bin/check_schema_change) on the commit under test. To run it on a branch, from a Bike Book checkout: `git fetch origin main && <bikebook_ci>/bin/check_schema_change . origin/main HEAD`.
+- **Schema changes:** a branch that changes a schema edits no data file but the vehicles its base's `representative_vehicles.csv` lists, the components they link and those components' bases. This is a check of its own, the `schema_changes` job, which runs [`bin/check_schema_change`](bin/check_schema_change) on the commit under test. On a Bike Book pull request, it also fails any change to `representative_vehicles.csv`, so a change to the list only merges by hand. To run the schema check on a branch, from a Bike Book checkout: `git fetch origin main && <bikebook_ci>/bin/check_schema_change . origin/main HEAD`.
 
 ## Running the checks
 

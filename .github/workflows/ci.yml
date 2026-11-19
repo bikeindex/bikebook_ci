@@ -52,7 +52,8 @@ jobs:
         with:
           repository: bikeindex/bikebook_ci
       # On a pull request the commit under test is its merge commit, whose first parent is the base branch
-      - name: Check that a schema change edits only the representative vehicles
+      - name: Fetch the commit under test and its parent
+        id: fetch
         env:
           REPOSITORY: ${{ github.repository == 'bikeindex/bikebook_ci' && 'bikeindex/bikebook' || github.repository }}
           REF: ${{ github.repository == 'bikeindex/bikebook_ci' && 'HEAD' || github.sha }}
@@ -60,4 +61,13 @@ jobs:
           git init -q bikebook
           git -C bikebook remote add origin "https://github.com/$REPOSITORY"
           git -C bikebook fetch -q --depth 2 --filter=blob:none origin "$REF"
-          bin/check_schema_change bikebook FETCH_HEAD^ FETCH_HEAD
+      - name: Check that a schema change edits only the representative vehicles
+        run: bin/check_schema_change bikebook FETCH_HEAD^ FETCH_HEAD
+      # Only on a pull request: once one merges, its change is on main and in every later diff from it
+      - name: Check that the representative vehicles are unchanged
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name == 'pull_request' && github.repository != 'bikeindex/bikebook_ci' }}
+        run: |
+          changed=$(git -C bikebook diff --name-only FETCH_HEAD^ FETCH_HEAD -- representative_vehicles.csv)
+          [ -z "$changed" ] && exit
+          echo "::error::This changes representative_vehicles.csv, which only merges by hand over this failing check"
+          exit 1
