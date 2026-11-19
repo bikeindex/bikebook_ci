@@ -24,7 +24,7 @@ jobs:
     environment: catalog
     env:
       BIKEBOOK_DATA: ${{ github.workspace }}/bikebook
-      CATALOG: ${{ runner.temp }}/catalog
+      CATALOG: ${{ github.workspace }}/catalog
       DESTINATION: s3://${{ vars.R2_CATALOG_BUCKET }}/catalog
       AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT }}
       AWS_DEFAULT_REGION: auto
