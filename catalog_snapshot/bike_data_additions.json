@@ -1,0 +1,18 @@
+{
+  "slug_aliases": {
+    "atb_gravel_cyclocross_etc": "atb",
+    "road_endurance_sportive": "road_endurance",
+    "carbon_or_composite": "carbon",
+    "wood_or_organic_material": "wood",
+    "mid_drive_dedicated_chain": "mid_drive_dedicated",
+    "e_personal_mobility": "epamd",
+    "aero_bars_extensions_bar_ends": "aero_bars",
+    "6_speed_pinion_gearbox_front": "6_speed_pinion",
+    "9_speed_pinion_gearbox_front": "9_speed_pinion",
+    "12_speed_pinion_gearbox_front": "12_speed_pinion",
+    "18_speed_pinion_gearbox_front": "18_speed_pinion"
+  },
+  "primary_activities": {
+    "Dirt Travel": 100
+  }
+}
