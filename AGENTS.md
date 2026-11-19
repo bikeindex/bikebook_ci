@@ -14,7 +14,7 @@ Every file pretty-printed with two spaces and a trailing newline, its keys in it
 
 # Code
 
-Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check, and `src/bin/generate_catalog/` writes the published catalog, byte for byte what the viewer has read so far: its `FORMAT` is the one the viewer checks. Anything bike_data holds is read from its latest commit, never copied here. `catalog_snapshot/` is a stopgap for hand-written values bikebook and bike_data don't hold yet (#3), not a place for data. Format with `cargo fmt` (`rustfmt.toml`); clippy runs with `-D warnings`.
+Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check, and `src/bin/generate_catalog/` writes the published catalog, byte for byte what the viewer has read so far: its `FORMAT` is the one the viewer checks. It's run only by `publish.yml`, never by hand: don't document a local command for it. Anything bike_data holds is read from its latest commit, never copied here. `catalog_snapshot/` is a stopgap for hand-written values bikebook and bike_data don't hold yet (#3), not a place for data. Format with `cargo fmt` (`rustfmt.toml`); clippy runs with `-D warnings`.
 
 - **Each check over the whole catalog has a test beside it that breaks a sample on purpose and asserts the check reports it.** A check that passes on every file proves nothing until something has seen it fail.
 - **Every test answers "what bug does this fail on?"** If you can't name a plausible wrong edit that turns it red, delete it — one that only restates the code costs an edit on every change and catches nothing.
