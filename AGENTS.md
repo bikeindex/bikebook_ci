@@ -1,4 +1,4 @@
-The checks for [BikeBook's data](https://github.com/bikeindex/bikebook): a Rust crate whose tests read a bikebook checkout and fail on any file that breaks what the catalog promises. bikebook's CI calls `.github/workflows/ci.yml` here at `main`, so a change merged here applies to bikebook's next run. On a push to bikebook's `main`, `ci.yml` starts `publish.yml`, which runs here because it holds the R2 keys: never move them into a workflow bikebook calls, where bikebook's workflows could read them.
+The checks for [BikeBook's data](https://github.com/bikeindex/bikebook): a Rust crate whose tests read a bikebook checkout and fail on any file that breaks what the catalog promises. bikebook's CI calls `.github/workflows/ci.yml` here at `main`, so a change merged here applies to bikebook's next run. bikebook's own publish workflow, on a push to its `main`, calls `start_publish.yml`, which starts `publish.yml`. That runs here because it holds the R2 keys: never move them into a workflow bikebook calls, where bikebook's workflows could read them.
 
 # Data
 

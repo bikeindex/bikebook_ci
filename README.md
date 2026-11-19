@@ -32,7 +32,7 @@ Some of the catalog's hand-written values aren't in bikebook or bike_data yet: t
 
 ## Publishing the catalog
 
-After each push to bikebook's `main` passes the checks, `ci.yml` starts `publish.yml` here and waits for it, so bikebook's CI fails if the catalog doesn't publish. `publish.yml` runs the checks against bikebook's latest `main`, downloads the published catalog from R2, generates over it, and uploads new files before the manifest that names them.
+On each push to bikebook's `main`, bikebook's publish workflow, separate from its checks, calls `start_publish.yml`. That starts `publish.yml` here and waits for it, so bikebook's publish fails if the catalog doesn't publish. `publish.yml` runs the checks against bikebook's latest `main`, downloads the published catalog from R2, generates over it, and uploads new files before the manifest that names them.
 
 It runs in this repo rather than as a workflow bikebook calls, so the R2 keys are never available to bikebook's workflows. bikebook holds only a token that can start the publish, which publishes bikebook's `main` whatever starts it.
 
@@ -40,4 +40,4 @@ Setup:
 - Here, an environment named `catalog`, deployable only from `main`, holding:
   - Secrets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`: an R2 API token with Object Read & Write on the catalog bucket only
   - Variables `R2_CATALOG_BUCKET` and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`)
-- In bikebook, a secret `CATALOG_PUBLISH_TOKEN`: a fine-grained token for bikebook_ci only, with only Actions read and write, passed to `ci.yml` as `catalog_publish_token`
+- In bikebook, a secret `CATALOG_PUBLISH_TOKEN`: a fine-grained token for bikebook_ci only, with only Actions read and write, passed to `start_publish.yml` as `catalog_publish_token`
