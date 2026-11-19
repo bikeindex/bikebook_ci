@@ -207,6 +207,23 @@ mod tests {
     }
 
     #[test]
+    fn target_riders_is_null_when_blank() {
+        let markets = Markets::load(&json!({"$defs": {"market": {"enum": []}}}));
+        let classifications = Classifications::new(Default::default());
+        let riders = |vehicle: Value| {
+            Row {
+                id: "m/x/2026/y",
+                vehicle: &vehicle,
+                incomplete: false,
+            }
+            .to_json(&markets, &classifications)["target_riders"]
+                .clone()
+        };
+        assert_eq!(riders(json!({"target_riders": ["kid"]})), json!(["kid"]));
+        assert_eq!(riders(json!({"target_riders": []})), Value::Null);
+    }
+
+    #[test]
     fn year_records_reads_a_map_or_an_array() {
         let keyed = json!({"years": {"2024": {"a": 1}}});
         assert_eq!(year_records(&keyed)[0].0, 2024);
