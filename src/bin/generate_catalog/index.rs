@@ -68,6 +68,7 @@ impl Row<'_> {
             "manufacturer_name": text("manufacturer"),
             "model_group": text("model_group"),
             "handlebar_type": text("handlebar_type"),
+            "target_riders": if blank(vehicle.get("target_riders")) { &Value::Null } else { &vehicle["target_riders"] },
             "photo": photo,
             "incomplete": self.incomplete,
         })

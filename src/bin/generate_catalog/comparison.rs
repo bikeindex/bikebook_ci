@@ -13,7 +13,7 @@ const FIT: [&str; 6] = [
     "rider_age_min",
     "rider_age_max",
 ];
-pub const FIELDS: [&str; 31] = [
+pub const FIELDS: [&str; 30] = [
     "modes",
     "assist_speed",
     "throttle_speed",
@@ -34,7 +34,6 @@ pub const FIELDS: [&str; 31] = [
     "bottle_mounts",
     "groupset_series",
     "frame_material",
-    "target_riders",
     "size_names",
     "rider_height_min",
     "rider_height_max",
@@ -144,10 +143,6 @@ pub fn call(vehicle: &Value, classifications: &Classifications) -> Map<String, V
             truthy(vehicle["frame"].get("material")).cloned(),
         ),
         ("mounts", mounts),
-        (
-            "target_riders",
-            (!ruby::blank(vehicle.get("target_riders"))).then(|| vehicle["target_riders"].clone()),
-        ),
         ("rider_height_min", height(0, |column| ruby::min(column))),
         ("rider_height_max", height(1, |column| ruby::max(column))),
     ]
