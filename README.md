@@ -9,6 +9,7 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 - **Schemas:** each file is valid against the schema its `schema_version` names. An overlay must be valid both as stored and once resolved over its base.
 - **Catalog:** each file's `id` matches its path, every overlay's base and every model's motors exist, and photos are keyed by the file's id.
 - **Images:** every image is served from `https://bikebook.bikeindex.org/`.
+- **Schema changes:** a commit that changes a schema edits no data file but the vehicles in [`representative_vehicles.csv`](representative_vehicles.csv), the components they link and those components' bases. The `schema_changes` job runs [`bin/check_schema_change`](bin/check_schema_change) on the commit under test; to run it on a branch, `bin/check_schema_change <bikebook checkout> origin/main HEAD`.
 
 ## Running the checks
 

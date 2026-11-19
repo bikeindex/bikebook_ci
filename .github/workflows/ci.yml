@@ -43,3 +43,21 @@ jobs:
           until [ -f "$RUNNER_TEMP/catalog_status" ]; do sleep 1; done
           exit "$(cat "$RUNNER_TEMP/catalog_status")"
       - run: cargo test --locked --no-fail-fast
+
+  schema_changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: bikeindex/bikebook_ci
+      # On a pull request the commit under test is its merge commit, whose first parent is the base branch.
+      # Without blobs, only the files the check reads are downloaded
+      - name: Check that a schema change edits only the representative vehicles
+        env:
+          REPOSITORY: ${{ github.repository == 'bikeindex/bikebook_ci' && 'bikeindex/bikebook' || github.repository }}
+          REF: ${{ github.repository == 'bikeindex/bikebook_ci' && 'HEAD' || github.sha }}
+        run: |
+          git init -q bikebook
+          git -C bikebook remote add origin "https://github.com/$REPOSITORY"
+          git -C bikebook fetch -q --depth 2 --filter=blob:none origin "$REF"
+          bin/check_schema_change bikebook FETCH_HEAD^ FETCH_HEAD

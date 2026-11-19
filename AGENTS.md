@@ -10,7 +10,7 @@ The checks for [BikeBook's data](https://github.com/bikeindex/bikebook): a Rust 
 
 # Checks
 
-Every file pretty-printed with two spaces and a trailing newline, its keys in its schema's property order, valid against the schema its `schema_version` names (an overlay both as stored and resolved), its `id` matching its path, an overlay's base and a model's motors present, its photos keyed by its id, and every image on our R2 bucket's `https://bikebook.bikeindex.org/`. CI runs them with `cargo fmt --check` and `cargo clippy -- -D warnings`, on the toolchain `.tool-versions` pins.
+Every file pretty-printed with two spaces and a trailing newline, its keys in its schema's property order, valid against the schema its `schema_version` names (an overlay both as stored and resolved), its `id` matching its path, an overlay's base and a model's motors present, its photos keyed by its id, every image on our R2 bucket's `https://bikebook.bikeindex.org/`, and a commit that changes a schema editing no data file but the vehicles `representative_vehicles.csv` lists and the components they link (`bin/check_schema_change`). CI runs them with `cargo fmt --check` and `cargo clippy -- -D warnings`, on the toolchain `.tool-versions` pins.
 
 # Code
 
