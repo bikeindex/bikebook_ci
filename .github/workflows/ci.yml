@@ -12,18 +12,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
+    env: &env
       BIKEBOOK_DATA: ${{ github.workspace }}/bikebook
-      # The commit under test's parent: on a pull request, its base branch
-      BIKEBOOK_BASE: HEAD^
     steps:
       # A repository other than the one running the workflow checks out at its default branch: called from bikebook,
       # that's this repo's main over the commit under test; run here, this commit over bikebook's main
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: bikeindex/bikebook_ci
-      # The catalog is the slowest step, so it downloads while the checks install and compile
-      - name: Start fetching the catalog
+      # The catalog, with the parent schema_changes diffs from, is the slowest step, so it downloads while the checks
+      # install and compile
+      - &fetch
+        name: Start fetching the catalog
         env:
           REPOSITORY: ${{ github.repository == 'bikeindex/bikebook_ci' && 'bikeindex/bikebook' || github.repository }}
           REF: ${{ github.repository == 'bikeindex/bikebook_ci' && 'HEAD' || github.sha }}
@@ -31,17 +32,37 @@ jobs:
           git init -q "$BIKEBOOK_DATA"
           (git -C "$BIKEBOOK_DATA" fetch -q --depth 2 "https://github.com/$REPOSITORY" "$REF" \
             && git -C "$BIKEBOOK_DATA" checkout -q FETCH_HEAD; echo $? > "$RUNNER_TEMP/catalog_status") &
-      - name: Install the pinned toolchain
+      - &toolchain
+        name: Install the pinned toolchain
         run: |
           version=$(awk '$1 == "rust" { print $2 }' .tool-versions)
           rustup toolchain install "$version" --profile minimal --component rustfmt,clippy
           rustup default "$version"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked --no-run
-      - name: Wait for the catalog
+      - &wait
+        name: Wait for the catalog
         run: |
           until [ -f "$RUNNER_TEMP/catalog_status" ]; do sleep 1; done
           exit "$(cat "$RUNNER_TEMP/catalog_status")"
       - run: cargo test --locked --no-fail-fast
+
+  schema_changes:
+    runs-on: ubuntu-latest
+    env: *env
+    steps:
+      - *checkout
+      - *fetch
+      - *toolchain
+      - *cache
+      # `--all-targets` leaves out a `test = false` target
+      - run: cargo clippy --test schema_changes --locked -- -D warnings
+      - run: cargo test --test schema_changes --locked --no-run
+      - *wait
+      - run: cargo test --test schema_changes --locked
+        env:
+          # The commit under test's parent: on a pull request, its base branch
+          BIKEBOOK_BASE: HEAD^

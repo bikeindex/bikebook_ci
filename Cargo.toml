@@ -16,3 +16,8 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 [profile.test]
 opt-level = 3
 debug = false
+
+# Its own check in CI, so a plain `cargo test` leaves it out
+[[test]]
+name = "schema_changes"
+test = false
