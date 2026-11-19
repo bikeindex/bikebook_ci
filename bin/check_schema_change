@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# bin/check_schema_change <bikebook checkout> <base> <head>
+set -euo pipefail
+cd "$1"
+head=$3
+base=$(git merge-base "$2" "$head")
+changed=$(git diff --name-only --no-renames "$base" "$head")
+grep -q '^schemas/' <<<"$changed" || exit 0
+
+# A representative vehicle's linked components, and their bases, move to the new shape with it
+linked() {
+  [ -z "$2" ] || { git grep -h -o -E "\"$1\": \"c/[^\"]+\"" "$head" -- $2 || true; } |
+    sed -E 's|.*"c/(.*)"|components/\1.json|' | sort -u
+}
+# The base's list, so a branch can't add to its own
+vehicles=$(git show "$base:representative_vehicles.csv" | awk -F, 'NR > 1 { print "vehicle_models/" substr($1, 3) ".json" }')
+components=$(linked id "$vehicles")
+bases=$(linked base "$components")
+others=$(grep -E '^(vehicle_models|components|e_vehicle_classifications)/' <<<"$changed" |
+  grep -v -x -F -f <(printf '%s\n' $vehicles $components $bases) || true)
+[ -z "$others" ] && exit 0
+echo "A schema change edits no data file but the vehicles in representative_vehicles.csv and the components they link. This one also edits:"
+echo "$others"
+exit 1

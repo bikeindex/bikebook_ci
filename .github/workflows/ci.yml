@@ -43,3 +43,31 @@ jobs:
           until [ -f "$RUNNER_TEMP/catalog_status" ]; do sleep 1; done
           exit "$(cat "$RUNNER_TEMP/catalog_status")"
       - run: cargo test --locked --no-fail-fast
+
+  # Apart from test, so it's a check of its own; without blobs, it downloads only the files it reads
+  schema_changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: bikeindex/bikebook_ci
+      # On a pull request the commit under test is its merge commit, whose first parent is the base branch
+      - name: Fetch the commit under test and its parent
+        id: fetch
+        env:
+          REPOSITORY: ${{ github.repository == 'bikeindex/bikebook_ci' && 'bikeindex/bikebook' || github.repository }}
+          REF: ${{ github.repository == 'bikeindex/bikebook_ci' && 'HEAD' || github.sha }}
+        run: |
+          git init -q bikebook
+          git -C bikebook remote add origin "https://github.com/$REPOSITORY"
+          git -C bikebook fetch -q --depth 2 --filter=blob:none origin "$REF"
+      - name: Check that a schema change edits only the representative vehicles
+        run: bin/check_schema_change bikebook FETCH_HEAD^ FETCH_HEAD
+      # Only on a pull request: once one merges, its change is on main and in every later diff from it
+      - name: Check that the representative vehicles are unchanged
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name == 'pull_request' && github.repository != 'bikeindex/bikebook_ci' }}
+        run: |
+          changed=$(git -C bikebook diff --name-only FETCH_HEAD^ FETCH_HEAD -- representative_vehicles.csv)
+          [ -z "$changed" ] && exit
+          echo "::error::This changes representative_vehicles.csv, which only merges by hand over this failing check"
+          exit 1
