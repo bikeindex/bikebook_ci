@@ -53,7 +53,7 @@ jobs:
         run: aws s3 sync --only-show-errors "$DESTINATION" "$CATALOG"
       - run: target/release/generate_catalog "$CATALOG"
       # The new files go up before the manifest naming them, and expired ones are deleted after it. Each is gzip but
-      # retired.json, and no-transform stops Cloudflare decompressing it, or recompressing it worse.
+      # retired.json, and no-transform stops Cloudflare recompressing it worse for a browser that takes brotli.
       # Cloudflare keeps the manifest for s-maxage, which has to stay well under RETENTION in generate_catalog: when
       # the purge below fails, the edge goes on serving an old manifest, and the files it names have to still be there
       - name: Upload the catalog
