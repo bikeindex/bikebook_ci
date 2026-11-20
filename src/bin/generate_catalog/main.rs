@@ -86,7 +86,8 @@ fn main() {
         .collect();
     let classifications = Classifications::new(records.clone());
 
-    let models = models(&catalog);
+    let models = resolved(&catalog, "vehicle_models/");
+    let component_files = resolved(&catalog, "components/");
     let incomplete: BTreeMap<&String, Vec<String>> = models
         .par_iter()
         .map(|(id, model)| (id, completeness::messages(model)))
@@ -199,6 +200,10 @@ fn main() {
                 (
                     "comparison",
                     json!({"format": format, "fields": comparison_fields}),
+                ),
+                (
+                    "components",
+                    json!({"format": format, "components": component_files}),
                 ),
             ]
             .into_iter()
@@ -331,12 +336,12 @@ fn listed<'a>(
         .unzip()
 }
 
-/// Every vehicle model by id, an overlay resolved over its base
-fn models(catalog: &Catalog) -> BTreeMap<String, Value> {
+/// Every file in a directory by id, an overlay resolved over its base
+fn resolved(catalog: &Catalog, directory: &str) -> BTreeMap<String, Value> {
     catalog
         .files
         .par_iter()
-        .filter(|(path, _)| path.starts_with("vehicle_models/"))
+        .filter(|(path, _)| path.starts_with(directory))
         .map(|(path, data)| {
             let resolved = catalog
                 .resolve(data)
@@ -575,6 +580,39 @@ mod tests {
             ["trek/2024", "trek/2025"]
         );
         assert_eq!(blocks["trek/2024"].len(), 2);
+    }
+
+    #[test]
+    fn resolved_reads_one_directory_resolving_overlays() {
+        let catalog = Catalog {
+            files: BTreeMap::from([
+                (
+                    "components/acme/2025/motor.json".to_string(),
+                    json!({"id": "c/acme/2025/motor", "manufacturer": "Acme", "rated_power": 250}),
+                ),
+                (
+                    "components/acme/2025/motor_eu.json".to_string(),
+                    json!({"id": "c/acme/2025/motor_eu", "base": "c/acme/2025/motor", "rated_power": 200}),
+                ),
+                (
+                    "vehicle_models/acme/2025/one.json".to_string(),
+                    json!({"id": "m/acme/2025/one"}),
+                ),
+            ]),
+        };
+        assert_eq!(
+            resolved(&catalog, "components/"),
+            BTreeMap::from([
+                (
+                    "c/acme/2025/motor".to_string(),
+                    json!({"id": "c/acme/2025/motor", "manufacturer": "Acme", "rated_power": 250})
+                ),
+                (
+                    "c/acme/2025/motor_eu".to_string(),
+                    json!({"id": "c/acme/2025/motor_eu", "manufacturer": "Acme", "rated_power": 200})
+                ),
+            ])
+        );
     }
 
     #[test]
