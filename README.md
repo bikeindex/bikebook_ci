@@ -56,3 +56,27 @@ Setup:
   - Variable `CLOUDFLARE_ZONE_ID`, that zone's ID.
 - **In Cloudflare:** a Cache Rule for hostname `bikebook-catalog.bikeindex.org` that makes it eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back.
 - **In Bike Book:** a secret `CATALOG_PUBLISH_TOKEN`, from a fine-grained token for this repository only, with "Actions: Read and write" and nothing else.
+
+## The API
+
+`https://catalog.bikeindex.org/v1/models` finds the catalog's models by manufacturer, model, year and market, and names each one's slugs, so a registration can be linked to its Bike Book model. It's a Cloudflare Worker, [`api/`](api/), that reads format 4's manifest and index as published, so it answers from the latest publish without a deploy of its own.
+
+It takes a `manufacturer`, a `model` or both, and optionally a `year` and a `market`:
+
+- **`manufacturer`** matches the maker whose slug its name makes, by Bike Book's slugify (`Surly Bicycles` is `surly`).
+- **`model`** matches a model named the same, by slug, or one whose name starts with its words: `Fuel EX 8` finds `Fuel EX 8 Gen 5` too. The exact names come first, each with `exact`.
+- **`year`** matches a model from its first year through its final year, or on, while it's current.
+- **`market`** picks a model's variant sold in it, in its place, as format 4's index describes. It filters nothing out.
+
+The response repeats the query with the slugs it made, then lists each model with its `id`, its manufacturer's and model's `name` and `slug`, its `first_year`, `final_year`, `markets` and `variants`:
+
+```sh
+curl 'https://catalog.bikeindex.org/v1/models?manufacturer=Trek&model=Fuel%20EX%208&year=2022'
+```
+
+Its tests run with `npm test` in `api/`. [`api.yml`](.github/workflows/api.yml) runs them on a change to `api/`, and deploys the Worker from `main`.
+
+Setup:
+
+- **Here:** an environment named `api`, deployable only from `main`, holding secret `CLOUDFLARE_WORKERS_TOKEN`, from a Cloudflare API token with Account > Workers Scripts > Edit, and Zone > Workers Routes > Edit and Zone > DNS > Edit on the `bikeindex.org` zone, and variable `CLOUDFLARE_ACCOUNT_ID`. It holds no R2 key: the Worker reads the catalog as any reader does.
+- **In Cloudflare:** the Workers Paid plan, since the first request to each instance parses the 24 MB index, well past the free plan's 10 ms of CPU. The deploy adds `catalog.bikeindex.org` as the Worker's custom domain.

@@ -15,7 +15,7 @@ Readers check the `format` of what they fetch. Changing a format in place breaks
 - `FORMATS` in `src/bin/generate_catalog/main.rs` lists the published formats, oldest first. Every file is written once per format and carries its own `format`.
 - `manifest_paths` names each format's manifest: `manifest.<format>.json`. Format 3 is also at `manifest.json`, where readers from before per-format manifests fetch it.
 - A file that no format's manifest names, a dropped format's manifests included, is deleted `RETENTION` after it stops being named. `publish.yml` uploads every `manifest*.json` and deletes what the generator retired.
-- Readers include the viewer (in bike_index: `bikebook/catalog_worker.js`, `similarity.js`) and bike_index's `Integrations::Bikebook::Catalog`, whose `FORMAT` and manifest path move with it. Before the second PR, ask the user whether there are others.
+- Readers include the viewer (in bike_index: `bikebook/catalog_worker.js`, `similarity.js`) bike_index's `Integrations::Bikebook::Catalog`, whose `FORMAT` and manifest path move with it, and this repo's `api/src/worker.js`, whose `FORMAT` does too. Before the second PR, ask the user whether there are others.
 
 ## PR 1: publish both formats
 
