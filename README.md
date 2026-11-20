@@ -53,7 +53,7 @@ Setup:
 - **Here:** an environment named `catalog`, deployable only from `main`, holding:
   - Secrets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from an R2 API token with Object Read & Write on the catalog bucket only.
   - Secrets `R2_STOCK_PHOTOS_ACCESS_KEY_ID` and `R2_STOCK_PHOTOS_SECRET_ACCESS_KEY`, from an R2 API token with Object Read & Write on the stock photos bucket only, which only the schema upload gets.
-  - Variables `R2_CATALOG_BUCKET` (`bikebook-catalog`), `R2_STOCK_PHOTOS_BUCKET` (`bikebook`, which `https://bikebook.bikeindex.org/` serves) and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`).
+  - Variable `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`). The catalog goes to the `bikebook-catalog` bucket and the schemas to `bikebook`, the one `https://bikebook.bikeindex.org/` serves, unless variables `R2_CATALOG_BUCKET` or `R2_STOCK_PHOTOS_BUCKET` name others.
   - Secret `CLOUDFLARE_PURGE_TOKEN`, from a Cloudflare API token with Zone > Cache Purge on the `bikeindex.org` zone only.
   - Variable `CLOUDFLARE_ZONE_ID`, that zone's ID.
 - **In Cloudflare:** a Cache Rule that makes the catalog eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back. Its expression:

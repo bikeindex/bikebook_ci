@@ -25,7 +25,7 @@ jobs:
     env:
       BIKEBOOK_DATA: ${{ github.workspace }}/bikebook
       CATALOG: ${{ github.workspace }}/catalog
-      DESTINATION: s3://${{ vars.R2_CATALOG_BUCKET }}/catalog
+      DESTINATION: s3://${{ vars.R2_CATALOG_BUCKET || 'bikebook-catalog' }}/catalog
       AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT }}
       AWS_DEFAULT_REGION: auto
       # R2 rejects the checksums newer AWS CLIs send by default
@@ -57,7 +57,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_STOCK_PHOTOS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STOCK_PHOTOS_SECRET_ACCESS_KEY }}
-          BUCKET: ${{ vars.R2_STOCK_PHOTOS_BUCKET }}
+          BUCKET: ${{ vars.R2_STOCK_PHOTOS_BUCKET || 'bikebook' }}
         run: |
           for schema in "$BIKEBOOK_DATA"/schemas/*.json; do
             key=$(jq -r '."$id" | sub("^https://[^/]+/"; "")' "$schema")
