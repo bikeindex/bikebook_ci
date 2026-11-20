@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 
 /// The published files' layouts, oldest first, each with its own manifest. A new one is published beside the one before
 /// it until every reader has moved to it: see the format-update skill
-const FORMATS: [u64; 2] = [3, 4];
+const FORMATS: [u64; 1] = [4];
 /// How long a file outlives the last manifest naming it, for a client still holding an older manifest
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -163,7 +163,7 @@ fn main() {
         .flat_map(|&format| {
             let blocks = write_blocks(&output, format, &models, &incomplete);
             let (index_models, listed_comparisons) =
-                listed(format, &index_rows, &comparisons, &variants);
+                listed(&index_rows, &comparisons, &variants);
             let index = json!({
                 "format": format,
                 "manufacturers": manufacturers(&rows),
@@ -209,16 +209,13 @@ fn main() {
                 .iter()
                 .for_each(|(name, path)| manifest[name] = json!(path));
             manifest["blocks"] = json!(blocks);
-            let manifests = manifest_paths(format);
-            let gzipped = gzip(&manifest.to_string());
-            manifests
-                .iter()
-                .for_each(|path| write(&output, path, &gzipped));
+            let manifest_path = format!("manifest.{format}.json");
+            write(&output, &manifest_path, &gzip(&manifest.to_string()));
             files
                 .into_iter()
                 .map(|(_, path)| path)
                 .chain(blocks.into_values())
-                .chain(manifests)
+                .chain([manifest_path])
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -236,16 +233,6 @@ fn main() {
         blocks(&models).len(),
         output.display()
     );
-}
-
-/// Format 3's readers read `manifest.json`, from before each format had its own
-fn manifest_paths(format: u64) -> Vec<String> {
-    let own = format!("manifest.{format}.json");
-    if format == 3 {
-        vec![own, "manifest.json".to_string()]
-    } else {
-        vec![own]
-    }
 }
 
 /// Each model's blocks, by `<maker>/<first year>`, named by their content
@@ -298,17 +285,13 @@ fn market_variants(catalog: &Catalog) -> BTreeMap<String, Vec<String>> {
         })
 }
 
-/// The index's models, and their comparisons in step with them. From format 4 a market variant isn't a row of its own
-/// but one of its base's `variants`, so a lookup can pick the one sold in the registrant's country
+/// The index's models, and their comparisons in step with them. A market variant isn't a row of its own but one of its
+/// base's `variants`, so a lookup can pick the one sold in the registrant's country
 fn listed<'a>(
-    format: u64,
     rows: &[Value],
     comparisons: &'a [Map<String, Value>],
     variants: &BTreeMap<String, Vec<String>>,
 ) -> (Vec<Value>, Vec<&'a Map<String, Value>>) {
-    if format < 4 {
-        return (rows.to_vec(), comparisons.iter().collect());
-    }
     let markets: BTreeMap<&str, &Value> = rows
         .iter()
         .map(|row| (row["id"].as_str().unwrap(), &row["markets"]))
@@ -605,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn listed_puts_a_market_variant_on_its_base_from_format_4() {
+    fn listed_puts_a_market_variant_on_its_base() {
         let rows = [
             json!({"id": "a", "markets": ["US"]}),
             json!({"id": "a_eu", "markets": ["EU"]}),
@@ -616,10 +599,7 @@ mod tests {
             .map(|id| json!({"of": id}).as_object().unwrap().clone())
             .collect();
         let variants = BTreeMap::from([("a".to_string(), vec!["a_eu".to_string()])]);
-        let (legacy, legacy_comparisons) = listed(3, &rows, &comparisons, &variants);
-        assert_eq!(legacy, rows);
-        assert_eq!(legacy_comparisons.len(), 3);
-        let (listed, listed_comparisons) = listed(4, &rows, &comparisons, &variants);
+        let (listed, listed_comparisons) = listed(&rows, &comparisons, &variants);
         assert_eq!(
             listed,
             [
