@@ -2,5 +2,6 @@
 .DS_Store
 .claude/settings.local.json
 .claude/worktrees/
+.claude/taken_over_worktree
 node_modules/
 .wrangler/
