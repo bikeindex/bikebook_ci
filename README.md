@@ -40,8 +40,9 @@ Bike Book's own publish workflow runs on each push to its `main`, separately fro
 
 1. It runs the checks against that commit.
 2. It downloads the published catalog from R2 and runs `generate_catalog` over it.
-3. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
-4. It purges the manifests from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
+3. It uploads each of Bike Book's schemas to the stock photos bucket, at the URL its `$id` names, unless that version is already there, since a published version never changes.
+4. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
+5. It purges the manifests from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
 
 **The R2 keys are only ever available here.** A workflow that Bike Book calls runs as Bike Book's run, with Bike Book's secrets. So the keys live in this repository's `catalog` environment, which only `main` can use, and only the download and upload steps get them.
 
@@ -51,7 +52,8 @@ Setup:
 
 - **Here:** an environment named `catalog`, deployable only from `main`, holding:
   - Secrets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from an R2 API token with Object Read & Write on the catalog bucket only.
-  - Variables `R2_CATALOG_BUCKET` (`bikebook-catalog`) and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`).
+  - Secrets `R2_STOCK_PHOTOS_ACCESS_KEY_ID` and `R2_STOCK_PHOTOS_SECRET_ACCESS_KEY`, from an R2 API token with Object Read & Write on the stock photos bucket only, which only the schema upload gets.
+  - Variables `R2_CATALOG_BUCKET` (`bikebook-catalog`), `R2_STOCK_PHOTOS_BUCKET` (the bucket `https://bikebook.bikeindex.org/` serves) and `R2_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`).
   - Secret `CLOUDFLARE_PURGE_TOKEN`, from a Cloudflare API token with Zone > Cache Purge on the `bikeindex.org` zone only.
   - Variable `CLOUDFLARE_ZONE_ID`, that zone's ID.
 - **In Cloudflare:** a Cache Rule that makes the catalog eligible for cache, with edge and browser TTL taken from the origin's `Cache-Control`, and a status code TTL of no-store for 404. Otherwise a 404 for a deleted file, from a tab open for over a day, would be cached, and outlast a publish that puts a file with the same contents back. Its expression:

@@ -52,6 +52,19 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: aws s3 sync --only-show-errors "$DESTINATION" "$CATALOG"
       - run: target/release/generate_catalog "$CATALOG"
+      # A published version never changes
+      - name: Upload the schemas
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_STOCK_PHOTOS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STOCK_PHOTOS_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ vars.R2_STOCK_PHOTOS_BUCKET }}
+        run: |
+          for schema in "$BIKEBOOK_DATA"/schemas/*.json; do
+            key=$(jq -r '."$id" | sub("^https://[^/]+/"; "")' "$schema")
+            aws s3api head-object --bucket "$BUCKET" --key "$key" &> /dev/null && continue
+            aws s3 cp "$schema" "s3://$BUCKET/$key" --content-type application/schema+json \
+              --cache-control "public, max-age=31536000, immutable"
+          done
       # The new files go up before the manifests naming them, and expired ones, a dropped format's manifests among them,
       # are deleted after. Each is gzip but retired.json, and no-transform stops Cloudflare recompressing it worse for a
       # browser that takes brotli. Cloudflare keeps a manifest for s-maxage, which has to stay well under RETENTION in
