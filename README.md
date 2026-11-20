@@ -63,8 +63,8 @@ Setup:
 
 It takes a `manufacturer`, a `model` or both, and optionally a `year` and a `market`:
 
-- **`manufacturer`** matches the maker whose slug its name makes, by Bike Book's slugify (`Surly Bicycles` is `surly`).
-- **`model`** matches a model named the same, by slug, or one whose name starts with its words: `Fuel EX 8` finds `Fuel EX 8 Gen 5` too. The exact names come first, each with `exact`.
+- **`manufacturer`** finds a maker as Bike Index's `Manufacturer.friendly_find` does, by its Bike Index slug (`Surly Bikes` is `surly-bikes`) or its legacy one (`Surly Bicycles` is `surly`), or by Bike Book's (its directory). A manufacturer's `slug` is its Bike Index one.
+- **`model`** matches a model named the same, by Bike Book's slug, or one whose name starts with its words: `Fuel EX 8` finds `Fuel EX 8 Gen 5` too. The exact names come first, each with `exact`.
 - **`year`** matches a model from its first year through its final year, or on, while it's current.
 - **`market`** picks a model's variant sold in it, in its place, as format 4's index describes. It filters nothing out.
 

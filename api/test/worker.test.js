@@ -5,7 +5,7 @@ import { api } from "../src/worker.js";
 const row = (id, model, first_year, final_year, extra = {}) => ({
   id,
   manufacturer: id.split("/")[1],
-  manufacturer_name: { surly: "Surly Bikes", trek: "Trek" }[id.split("/")[1]],
+  manufacturer_name: { riese_and_muller: "Riese & Müller", surly: "Surly Bikes", trek: "Trek" }[id.split("/")[1]],
   model,
   first_year,
   final_year,
@@ -15,6 +15,7 @@ const row = (id, model, first_year, final_year, extra = {}) => ({
 });
 
 const MODELS = [
+  row("m/riese_and_muller/2024/load4_75", "Load4 75", 2024, null),
   row("m/surly/2020/karate_monkey", "Karate Monkey", 2020, 2022),
   row("m/trek/2021/fuel_ex_8", "Fuel EX 8", 2021, 2021, {
     variants: [{ id: "m/trek/2021/fuel_ex_8_gb", markets: ["GB"] }],
@@ -46,12 +47,22 @@ const get = async (worker, search, path = "/v1/models") => {
 
 const ids = ({ body }) => body.models.map(({ id }) => id);
 
-test("a manufacturer alone lists its models, by its slug", async () => {
+test("a manufacturer alone lists its models, named by their Bike Index slug", async () => {
   const worker = api(serving(catalog()).fetchCatalog);
-  const response = await get(worker, "manufacturer=Surly%20Bicycles");
-  assert.deepEqual(response.body.query.manufacturer, { name: "Surly Bicycles", slug: "surly" });
+  const response = await get(worker, "manufacturer=Surly%20%20Bicycles%20");
+  assert.deepEqual(response.body.query.manufacturer, { name: "Surly Bicycles", slug: "surly-bicycles" });
   assert.deepEqual(ids(response), ["m/surly/2020/karate_monkey"]);
-  assert.deepEqual(response.body.models[0].manufacturer, { name: "Surly Bikes", slug: "surly" });
+  assert.deepEqual(response.body.models[0].manufacturer, { name: "Surly Bikes", slug: "surly-bikes" });
+});
+
+test("a manufacturer is found by its slug, its legacy slug or bikebook's", async () => {
+  const worker = api(serving(catalog()).fetchCatalog);
+  const found = async (manufacturer) =>
+    ids(await get(worker, `manufacturer=${encodeURIComponent(manufacturer)}`)).length;
+  const counts = await Promise.all(
+    ["riese-amp-muller", "Riese and Muller", "riese_and_muller", "surly-bikes", "Trek Bicycle Corporation"].map(found),
+  );
+  assert.deepEqual(counts, [1, 1, 1, 1, 0]);
 });
 
 test("a model and year match across manufacturers, exact names first", async () => {
