@@ -24,7 +24,7 @@ A data problem gets fixed in Bike Book, not here.
 
 The catalog is the one the viewer at [bikeindex.org/bikebook](https://bikeindex.org/bikebook) reads. It's published only by GitHub Actions, never from a local run.
 
-Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison` and a block of models for each maker and first year. Format 3's is also at `manifest.json`, where its readers fetch it. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
+Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison`, the `components` (each by its id, an overlay resolved over its base) and a block of models for each maker and first year. Format 3's is also at `manifest.json`, where its readers fetch it. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
 
 A change to the published layout is a new format, published beside the one before it until every reader has moved to it. `.claude/skills/format-update` has the steps.
 
@@ -72,6 +72,12 @@ The response repeats the query with the slugs it made, then lists each model wit
 
 ```sh
 curl 'https://catalog.bikeindex.org/v1/models?manufacturer=Trek&model=Fuel%20EX%208&year=2022'
+```
+
+`https://catalog.bikeindex.org/v1/<id>` returns the record with that id: a vehicle model's (`m/…`) from its block, a component's (`c/…`) from the `components`, or an e-vehicle classification's (`evc/…`) from the vocabulary. It names the `kind`, and for a model or component its manufacturer's and model's `name` and `slug`, as the search does:
+
+```sh
+curl 'https://catalog.bikeindex.org/v1/evc/us/class_3'
 ```
 
 Its tests run with `npm test` in `api/`. [`api.yml`](.github/workflows/api.yml) runs them on a change to `api/`, and deploys the Worker from `main`.

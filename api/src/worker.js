@@ -4,6 +4,22 @@ import { legacyManufacturer, normalize, slugify as manufacturerSlug } from "./sl
 const CATALOG = "https://bikebook-catalog.bikeindex.org/catalog/";
 const FORMAT = 4;
 const PARAMETERS = ["manufacturer", "model", "year", "market"];
+const NOT_FOUND =
+  "Not found: the API is /v1/models, and /v1/<id> for a vehicle model (m/…), a component (c/…) or an e-vehicle classification (evc/…)";
+/** Where each kind of id is published */
+const RECORDS = {
+  m: {
+    kind: "vehicle_model",
+    file: (manifest, id) => manifest.blocks[id.slice("m/".length, id.lastIndexOf("/"))],
+    record: ({ models }, id) => models[id],
+  },
+  c: { kind: "component", file: (manifest) => manifest.components, record: ({ components }, id) => components[id] },
+  evc: {
+    kind: "e_vehicle_classification",
+    file: (manifest) => manifest.vocabulary,
+    record: ({ e_vehicle_classifications: records }, id) => records[id] && { id, ...records[id] },
+  },
+};
 
 export function api(fetchCatalog) {
   const json = async (path) => {
@@ -25,21 +41,30 @@ export function api(fetchCatalog) {
     return { published_at: manifest.published_at, models: await loading.models };
   };
 
+  const search = async (parameters) => {
+    const query = parse(parameters);
+    if (query.error) return respond(400, query);
+    const { published_at, models } = await catalog();
+    return respond(200, { format: FORMAT, published_at, query, models: matches(models, query) });
+  };
+
+  const lookup = async (id, { kind, file, record }) => {
+    const manifest = await json(`manifest.${FORMAT}.json`);
+    const path = file(manifest, id);
+    const found = path && record(await json(path), id);
+    if (!found) return respond(404, { error: `There's no ${kind} ${id}` });
+    return respond(200, { format: FORMAT, published_at: manifest.published_at, kind, ...slugs(id, found), record: found });
+  };
+
   return {
     async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname !== "/v1/models") return respond(404, { error: "Not found: the API is /v1/models" });
       if (!["GET", "HEAD"].includes(request.method)) return respond(405, { error: "Only GET" });
-      const query = parse(url.searchParams);
-      if (query.error) return respond(400, query);
-      const loaded = await catalog().catch((error) => ({ error }));
-      if (loaded.error) return respond(502, { error: `The catalog didn't load: ${loaded.error.message}` });
-      return respond(200, {
-        format: FORMAT,
-        published_at: loaded.published_at,
-        query,
-        models: matches(loaded.models, query),
-      });
+      const { pathname, searchParams } = new URL(request.url);
+      const id = pathname.slice("/v1/".length);
+      const records = pathname.startsWith("/v1/") && RECORDS[id.split("/")[0]];
+      const route = pathname === "/v1/models" ? search(searchParams) : records && lookup(id, records);
+      if (!route) return respond(404, { error: NOT_FOUND });
+      return route.catch((error) => respond(502, { error: `The catalog didn't load: ${error.message}` }));
     },
   };
 }
@@ -47,6 +72,14 @@ export function api(fetchCatalog) {
 export default api((path) => fetch(CATALOG + path));
 
 const lastSegment = (id) => id.slice(id.lastIndexOf("/") + 1);
+
+const slugs = (id, record) =>
+  record.manufacturer
+    ? {
+        manufacturer: { name: record.manufacturer, slug: manufacturerSlug(record.manufacturer) },
+        model: { name: record.model, slug: lastSegment(id) },
+      }
+    : {};
 
 /** A manufacturer's Bike Index slugs, which `Manufacturer.friendly_find` looks up a name by */
 const manufacturerSlugs = (name) => [manufacturerSlug(name), legacyManufacturer(name)];

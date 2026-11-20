@@ -35,13 +35,28 @@ const serving = (files) => {
   return { fetched, fetchCatalog };
 };
 
+const BLOCK = {
+  "m/trek/2022/fuel_ex_8_gen_5": { id: "m/trek/2022/fuel_ex_8_gen_5", manufacturer: "Trek", model: "Fuel EX 8 Gen 5" },
+};
+const COMPONENT = { id: "c/bosch/2024/cx", manufacturer: "Bosch eBike Systems", model: "Performance Line CX" };
+const CLASS_1 = { name: "Class 1", max_speed: 32.19 };
+
 const catalog = (models = MODELS, index = "index.a.json") => ({
-  "manifest.4.json": { index, published_at: "2026-11-19T00:00:00Z" },
+  "manifest.4.json": {
+    index,
+    published_at: "2026-11-19T00:00:00Z",
+    blocks: { "trek/2022": "models/trek/2022.a.json" },
+    components: "components.a.json",
+    vocabulary: "vocabulary.a.json",
+  },
   [index]: { models },
+  "models/trek/2022.a.json": { models: BLOCK },
+  "components.a.json": { components: { [COMPONENT.id]: COMPONENT } },
+  "vocabulary.a.json": { e_vehicle_classifications: { "evc/us/class_1": CLASS_1 } },
 });
 
 const get = async (worker, search, path = "/v1/models") => {
-  const response = await worker.fetch(new Request(`https://catalog.bikeindex.org${path}?${search}`));
+  const response = await worker.fetch(new Request(`https://catalog.bikeindex.org${path}${search ? `?${search}` : ""}`));
   return { status: response.status, body: await response.json() };
 };
 
@@ -132,4 +147,31 @@ test("a catalog that fails to load is a 502, and is fetched again on the next re
   assert.equal((await get(worker, "manufacturer=trek")).status, 502);
   files["index.a.json"] = index;
   assert.equal(ids(await get(worker, "manufacturer=trek")).length, 3);
+});
+
+test("an id finds its vehicle model, component or e-vehicle classification, with their slugs", async () => {
+  const worker = api(serving(catalog()).fetchCatalog);
+  const lookup = async (id) => (await get(worker, "", `/v1/${id}`)).body;
+  const model = await lookup("m/trek/2022/fuel_ex_8_gen_5");
+  assert.equal(model.kind, "vehicle_model");
+  assert.deepEqual(model.record, BLOCK["m/trek/2022/fuel_ex_8_gen_5"]);
+  assert.deepEqual(model.model, { name: "Fuel EX 8 Gen 5", slug: "fuel_ex_8_gen_5" });
+  const component = await lookup(COMPONENT.id);
+  assert.equal(component.kind, "component");
+  assert.deepEqual(component.record, COMPONENT);
+  assert.deepEqual(component.manufacturer, { name: "Bosch eBike Systems", slug: "bosch-ebike-systems" });
+  const classification = await lookup("evc/us/class_1");
+  assert.equal(classification.kind, "e_vehicle_classification");
+  assert.deepEqual(classification.record, { id: "evc/us/class_1", ...CLASS_1 });
+  assert.equal(classification.manufacturer, undefined);
+});
+
+test("an id that isn't published is a 404", async () => {
+  const worker = api(serving(catalog()).fetchCatalog);
+  const statuses = await Promise.all(
+    ["m/trek/2022/fuel_ex_9", "m/trek/2023/fuel_ex_8", "c/bosch/2024/sx", "evc/us/class_4", "x/trek/2022/a"].map(
+      async (id) => (await get(worker, "", `/v1/${id}`)).status,
+    ),
+  );
+  assert.deepEqual(statuses, [404, 404, 404, 404, 404]);
 });
