@@ -51,7 +51,7 @@ fn swapped(value: &Value, first: &str, second: &str) -> Value {
 #[test]
 fn a_reordered_file_is_reported() {
     let schemas = Schemas::load();
-    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let path = "vehicle_models/porsche/2025/cross.json";
     let model = &parsed(&[path])[path];
     assert_eq!(order_errors(&schemas, path, model), Vec::<String>::new());
 
@@ -94,9 +94,9 @@ fn a_reordered_file_is_reported() {
             .any(|error| error.contains("/years: keys must be ordered"))
     );
 
-    let overlay_path = "vehicle_models/specialized/2025/haul_st_ca.json";
-    let overlay = json!({"schema_version": model["schema_version"], "id": "m/specialized/2025/haul_st_ca",
-        "base": "m/specialized/2025/haul_st", "markets": ["CA"]});
+    let overlay_path = "vehicle_models/porsche/2025/cross_ca.json";
+    let overlay = json!({"schema_version": model["schema_version"], "id": "m/porsche/2025/cross_ca",
+        "base": "m/porsche/2025/cross", "markets": ["CA"]});
     assert_eq!(
         order_errors(&schemas, overlay_path, &overlay),
         Vec::<String>::new()
@@ -107,7 +107,7 @@ fn a_reordered_file_is_reported() {
 #[test]
 fn a_market_variant_is_ordered_as_an_overlay() {
     let schemas = Schemas::load();
-    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let path = "vehicle_models/porsche/2025/cross.json";
     let mut model = parsed(&[path])[path].clone();
     if schemas.documents[&Schemas::id("vehicle_model", model["schema_version"].as_str().unwrap())]
         .pointer("/properties/market_variants")
@@ -116,9 +116,9 @@ fn a_market_variant_is_ordered_as_an_overlay() {
         return;
     }
     model["market_variants"] =
-        json!({"CA": {"model": "Haul ST CA", "frame": false, "markets": ["CA"]}});
+        json!({"CA": {"model": "Cross CA", "frame": false, "markets": ["CA"]}});
     assert_eq!(order_errors(&schemas, path, &model), Vec::<String>::new());
-    model["market_variants"] = json!({"CA": {"markets": ["CA"], "model": "Haul ST CA"}});
+    model["market_variants"] = json!({"CA": {"markets": ["CA"], "model": "Cross CA"}});
     assert!(
         order_errors(&schemas, path, &model)
             .iter()

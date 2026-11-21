@@ -31,7 +31,7 @@ fn every_representative_vehicle_is_in_the_catalog() {
 #[test]
 fn a_representative_vehicle_missing_from_the_catalog_is_reported() {
     let ids = [
-        "m/specialized/2025/haul_st",
+        "m/porsche/2025/cross",
         "m/specialized/2025/haul",
         "c/shimano/deore",
     ]

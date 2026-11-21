@@ -106,6 +106,15 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
     );
 }
 
+/// What joins a model's id to a suffix: a market variant's market, a colorway photo's paint. Schema 2.0.0's ids have no
+/// underscores
+pub fn suffix_separator(data: &Value) -> char {
+    match data.get("schema_version").and_then(Value::as_str) {
+        Some(version) if version.starts_with("1.") => '_',
+        _ => '-',
+    }
+}
+
 pub struct Catalog {
     pub files: BTreeMap<String, Value>,
     /// Each file's `market_variants`, as the overlays over it they stand for, by the path their id names
@@ -127,7 +136,8 @@ impl Catalog {
                     .into_iter()
                     .flatten()
                     .filter_map(move |(market, variant)| {
-                        let variant_id = format!("{id}_{}", market.to_lowercase());
+                        let variant_id =
+                            format!("{id}{}{}", suffix_separator(data), market.to_lowercase());
                         let mut overlay = Map::new();
                         overlay.insert("schema_version".into(), data["schema_version"].clone());
                         overlay.insert("id".into(), variant_id.clone().into());
@@ -672,6 +682,20 @@ mod tests {
                 .unwrap()
                 .get("market_variants")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn a_market_variant_on_schema_2_is_suffixed_with_a_dash() {
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["EU"],
+            "market_variants": {"US": {"markets": ["US"]}}});
+        let catalog = Catalog::new(BTreeMap::from([(
+            "vehicle_models/acme/2025/one.json".to_string(),
+            base,
+        )]));
+        assert_eq!(
+            catalog.by_id("m/acme/2025/one-us").unwrap()["id"],
+            "m/acme/2025/one-us"
         );
     }
 
