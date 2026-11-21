@@ -125,10 +125,11 @@ fn a_file_breaking_its_schema_is_reported() {
     broken["market_variants"] = json!({"CA": {"markets": ["CA"]}});
     let catalog = Catalog::new([(path.to_string(), broken)].into());
     let errors = schema_errors(&schemas, &catalog);
+    let variant = catalog.variants.keys().next().unwrap();
     assert!(
         errors
             .iter()
-            .any(|error| error.starts_with("components/tq/2025/hpr60_ca.json resolved")),
+            .any(|error| error.starts_with(&format!("{variant} resolved"))),
         "{errors:?}"
     );
     assert!(

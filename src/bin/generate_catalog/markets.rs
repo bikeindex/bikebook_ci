@@ -1,6 +1,7 @@
 //! The markets a model is sold in, which the index filters by
 
 use crate::ruby::{array, blank};
+use bikebook_data_checks::{dashed, dashes};
 use regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;
@@ -59,8 +60,10 @@ impl Markets {
                 }
             });
         if pages.is_empty() {
+            // keyed by schema 1.x's slugs
             Value::from(vec![
-                self.lookup("primary_markets", manufacturer).unwrap_or("US"),
+                self.lookup("primary_markets", &manufacturer.replace('-', "_"))
+                    .unwrap_or("US"),
             ])
         } else {
             Value::from(pages)
@@ -149,18 +152,18 @@ pub struct Classifications {
     records: serde_json::Map<String, Value>,
 }
 
-const OUT_OF_CLASS: &str = "evc/out_of_class";
-const US_CLASSES: [&str; 3] = ["evc/us/class_1", "evc/us/class_2", "evc/us/class_3"];
+const OUT_OF_CLASS: &str = "evc/out-of-class";
+const US_CLASSES: [&str; 3] = ["evc/us/class-1", "evc/us/class-2", "evc/us/class-3"];
 /// Types whose motor only throttles
-const THROTTLED_TYPES: [&str; 4] = ["e_scooter", "epamd", "e_motorcycle", "e_atv"];
+const THROTTLED_TYPES: [&str; 4] = ["e-scooter", "personal-mobility", "e-motorcycle", "e-atv"];
 
 impl Classifications {
     pub fn new(records: serde_json::Map<String, Value>) -> Classifications {
         Classifications { records }
     }
 
-    /// The groups the model's operating modes are classified in, then `evc/out_of_class`, past every e-bike class and
-    /// law, or for a class 3 throttle each jurisdiction that bars it
+    /// The groups the model's operating modes are classified in, then `evc/out-of-class` (`evc/out_of_class` on schema
+    /// 1.x), past every e-bike class and law, or for a class 3 throttle each jurisdiction that bars it
     pub fn of(&self, vehicle: &Value) -> Vec<String> {
         let groups = operating_modes(vehicle)
             .flat_map(|mode| array(mode.get("e_vehicle_classifications")))
@@ -174,25 +177,34 @@ impl Classifications {
                 }
             });
         let past_e_bikes = groups.iter().any(|group| {
-            !US_CLASSES.contains(&group.as_str())
+            !US_CLASSES.contains(&dashed(group).as_str())
                 && blank(
                     self.records
                         .get(group)
                         .and_then(|record| record.get("e_bike_law")),
                 )
         });
-        let kind = vehicle["type"].as_str().unwrap_or_default();
-        let markers: Vec<String> =
-            if kind == "e_motorcycle" || (!THROTTLED_TYPES.contains(&kind) && past_e_bikes) {
-                vec![OUT_OF_CLASS.to_string()]
-            } else if groups.iter().any(|group| group == US_CLASSES[2])
-                && modes(vehicle).contains(&"throttle")
-            {
-                self.class_3_throttle_bars()
+        let kind = dashed(vehicle["type"].as_str().unwrap_or_default());
+        let markers: Vec<String> = if kind == "e-motorcycle"
+            || (!THROTTLED_TYPES.contains(&kind.as_str()) && past_e_bikes)
+        {
+            vec![OUT_OF_CLASS.to_string()]
+        } else if groups.iter().any(|group| dashed(group) == US_CLASSES[2])
+            && modes(vehicle).contains(&"throttle")
+        {
+            self.class_3_throttle_bars()
+        } else {
+            vec![]
+        };
+        let underscored = !dashes(vehicle["schema_version"].as_str().unwrap_or_default());
+        let markers = markers.into_iter().map(|marker| {
+            if underscored {
+                marker.replace('-', "_")
             } else {
-                vec![]
-            };
-        [groups, markers].concat()
+                marker
+            }
+        });
+        groups.into_iter().chain(markers).collect()
     }
 
     /// The one group a classification names, in its place
@@ -250,14 +262,17 @@ pub fn stock(mode: &Value) -> bool {
 
 /// Its stock propulsions; one with no operating mode for it is a stock one
 pub fn modes(vehicle: &Value) -> Vec<&'static str> {
-    [("assist", "pedal_assist"), ("throttle", "throttle")]
+    [("assist", "pedal-assist"), ("throttle", "throttle")]
         .into_iter()
         .filter(|(mode, propulsion)| {
             let named: Vec<&Value> = operating_modes(vehicle)
                 .filter(|each| each["mode"] == *mode)
                 .collect();
             if named.is_empty() {
-                array(vehicle.get("propulsion")).contains(&&Value::from(*propulsion))
+                array(vehicle.get("propulsion")).into_iter().any(|item| {
+                    item.as_str()
+                        .is_some_and(|item| dashed(item) == *propulsion)
+                })
             } else {
                 named.iter().any(|each| stock(each))
             }
@@ -305,6 +320,7 @@ mod tests {
         let priced = json!({"years": {"2024": {"original_msrp_currency": "GBP"}, "2025": {"url": "https://example.com/en-gb/x"}}});
         assert_eq!(markets.sold(&priced, "trek"), json!(["GB"]));
         assert_eq!(markets.sold(&json!({}), "3t"), json!(["EU"]));
+        assert_eq!(markets.sold(&json!({}), "riese-and-muller"), json!(["EU"]));
         assert_eq!(markets.sold(&json!({}), "trek"), json!(["US"]));
     }
 
@@ -349,11 +365,52 @@ mod tests {
     }
 
     #[test]
+    fn a_2_0_0_model_is_classified_and_marked_dashed() {
+        let classifications = Classifications::new(
+            json!({
+                "evc/us/class-3": {"max_speed": 45.06},
+                "evc/us/ny/class-3": {"groups": ["evc/us/class-3"]},
+                "evc/us/ny/nyc": {"jurisdiction": "US-NY", "class_3_throttle": false},
+                "evc/l1e-b-moped": {"e_bike_law": false},
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+        let of = |ids: Value, propulsion: Value, kind: &str| {
+            let mut vehicle = classified(ids, propulsion, kind);
+            vehicle["schema_version"] = json!("2.0.0");
+            classifications.of(&vehicle)
+        };
+        assert_eq!(
+            of(json!(["evc/us/ny/class-3"]), json!(["throttle"]), "bike"),
+            ["evc/us/class-3", "evc/out-of-class/us/ny"]
+        );
+        assert_eq!(
+            of(json!(["evc/us/class-3"]), json!(["pedal-assist"]), "bike"),
+            ["evc/us/class-3"]
+        );
+        assert_eq!(
+            of(json!(["evc/us/class-3"]), json!([]), "e-motorcycle"),
+            ["evc/us/class-3", "evc/out-of-class"]
+        );
+        assert_eq!(
+            of(json!(["evc/l1e-b-moped"]), json!([]), "bike"),
+            ["evc/l1e-b-moped", "evc/out-of-class"]
+        );
+        assert_eq!(
+            of(json!(["evc/l1e-b-moped"]), json!([]), "personal-mobility"),
+            ["evc/l1e-b-moped"]
+        );
+    }
+
+    #[test]
     fn modes_counts_a_propulsion_without_operating_modes_as_stock() {
         assert_eq!(
             modes(&json!({"propulsion": ["pedal_assist", "throttle"]})),
             ["assist", "throttle"]
         );
+        assert_eq!(modes(&json!({"propulsion": ["pedal-assist"]})), ["assist"]);
         let unlockable = json!({"propulsion": ["throttle"], "motors": [{"operating_modes": [{"mode": "throttle", "availability": "unlockable"}]}]});
         assert_eq!(modes(&unlockable), Vec::<&str>::new());
     }

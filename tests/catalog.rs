@@ -95,13 +95,14 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
 
     // a photo is stored under its model's id, a colorway's under the id and its paint; an overlay's can be its base's
     let owners: Vec<&str> = std::iter::once(id).chain(base).map(unprefixed).collect();
+    let separator = suffix_separator(data);
     if let Some(photo) = resolved.get("stock_photo").and_then(Value::as_str)
         && !owners.contains(&photo_stem(photo))
     {
         problems.push(format!("stock_photo isn't keyed by the id: {photo}"));
     }
     if let Some(photo) = resolved.get("geometry_photo").and_then(Value::as_str)
-        && photo_stem(photo) != format!("{}_geometry", owners.last().unwrap())
+        && photo_stem(photo) != format!("{}{separator}geometry", owners.last().unwrap())
     {
         problems.push(format!("geometry_photo isn't keyed by the id: {photo}"));
     }
@@ -118,7 +119,7 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
         let stem = photo_stem(photo);
         if !owners
             .iter()
-            .any(|owner| stem == *owner || stem.starts_with(&format!("{owner}_")))
+            .any(|owner| stem == *owner || stem.starts_with(&format!("{owner}{separator}")))
         {
             problems.push(format!("{at} isn't keyed by the id: {photo}"));
         }
@@ -133,12 +134,12 @@ fn every_file_names_its_own_id_and_what_it_references() {
 
 #[test]
 fn a_misplaced_or_dangling_file_is_reported() {
-    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let path = "vehicle_models/porsche/2025/cross.json";
     let model = &parsed(&[path])[path];
     let mut misplaced = model.clone();
-    misplaced["id"] = "m/specialized/2024/haul_st".into();
+    misplaced["id"] = "m/porsche/2024/cross".into();
     misplaced["first_year"] = 2027.into();
-    misplaced["stock_photo"] = "https://bikebook.bikeindex.org/specialized/2025/haul_lt.png".into();
+    misplaced["stock_photo"] = "https://bikebook.bikeindex.org/porsche/2025/sport.webp".into();
     misplaced["motors"] = json!([{"id": "c/nobody/2025/motor"}]);
     let problems = catalog_problems(&Catalog::new([(path.to_string(), misplaced)].into()));
     for expected in [
@@ -154,11 +155,11 @@ fn a_misplaced_or_dangling_file_is_reported() {
         );
     }
 
-    let overlay = json!({"schema_version": model["schema_version"], "id": "m/specialized/2025/haul_st_ca",
-        "base": "m/specialized/2025/haul_st"});
+    let overlay = json!({"schema_version": model["schema_version"], "id": "m/porsche/2025/cross_ca",
+        "base": "m/porsche/2025/cross"});
     let problems = catalog_problems(&Catalog::new(
         [(
-            "vehicle_models/specialized/2025/haul_st_ca.json".to_string(),
+            "vehicle_models/porsche/2025/cross_ca.json".to_string(),
             overlay,
         )]
         .into(),
@@ -166,8 +167,7 @@ fn a_misplaced_or_dangling_file_is_reported() {
     assert!(
         problems
             .iter()
-            .any(|problem| problem
-                .contains("its base m/specialized/2025/haul_st isn't in this repo")),
+            .any(|problem| problem.contains("its base m/porsche/2025/cross isn't in this repo")),
         "{problems:?}"
     );
 }
@@ -175,18 +175,19 @@ fn a_misplaced_or_dangling_file_is_reported() {
 #[test]
 fn a_market_variant_is_checked_as_a_model_and_its_id_found() {
     let motor_path = "components/tq/2025/hpr60.json";
-    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let path = "vehicle_models/porsche/2025/cross.json";
     let mut files = parsed(&[motor_path, path]);
+    let separator = suffix_separator(&files[path]);
     files.get_mut(motor_path).unwrap()["market_variants"] = json!({"US": {"markets": ["US"]}});
     let model = files.get_mut(path).unwrap();
-    model["motors"] = json!([{"id": "c/tq/2025/hpr60_us"}]);
-    model["market_variants"] =
-        json!({"CA": {"markets": ["CA"], "motors": {"0": {"id": "c/tq/2025/hpr60_ca"}}}});
+    model["motors"] = json!([{"id": format!("c/tq/2025/hpr60{separator}us")}]);
+    model["market_variants"] = json!({"CA": {"markets": ["CA"],
+        "motors": {"0": {"id": format!("c/tq/2025/hpr60{separator}ca")}}}});
     let problems = catalog_problems(&Catalog::new(files));
     assert_eq!(
         problems,
-        [
-            "vehicle_models/specialized/2025/haul_st_ca.json: its motor c/tq/2025/hpr60_ca isn't in this repo"
-        ]
+        [format!(
+            "vehicle_models/porsche/2025/cross{separator}ca.json: its motor c/tq/2025/hpr60{separator}ca isn't in this repo"
+        )]
     );
 }
