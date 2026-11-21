@@ -18,8 +18,8 @@ fn schema_errors(schemas: &Schemas, catalog: &Catalog) -> Vec<String> {
             .unwrap_or(&current_classification);
         Schemas::id(Catalog::kind(path), version)
     };
-    let validators: std::collections::HashMap<String, _> = catalog
-        .files
+    let models: Vec<(&String, &Value)> = catalog.models().collect();
+    let validators: std::collections::HashMap<String, _> = models
         .iter()
         .map(|(path, data)| schema_id(path, data))
         .collect::<std::collections::HashSet<_>>()
@@ -29,16 +29,17 @@ fn schema_errors(schemas: &Schemas, catalog: &Catalog) -> Vec<String> {
             (id, validator)
         })
         .collect();
-    catalog
-        .files
+    models
         .par_iter()
-        .flat_map_iter(|(path, data)| {
+        .flat_map_iter(|&(path, data)| {
             let validator = match &validators[&schema_id(path, data)] {
                 Ok(validator) => validator,
                 Err(error) => return vec![format!("{path}: {error}")],
             };
-            let mut documents = vec![("", data.clone())];
-            // as it's stored, and as the catalog reads it
+            // as it's stored, and as the catalog reads it; a market variant is stored in its base
+            let stored = !catalog.variants.contains_key(path);
+            let mut documents: Vec<(&str, Value)> =
+                stored.then(|| ("", data.clone())).into_iter().collect();
             if data.get("base").is_some() {
                 match catalog.resolve(data) {
                     Ok(resolved) => documents.push((" resolved", resolved)),
@@ -63,9 +64,12 @@ fn each_schema_is_valid_json_schema_at_its_versioned_id() {
     let schemas = Schemas::load();
     let mut problems = vec![];
     for path in json_paths(SCHEMA_DIRECTORY) {
-        let name = path
+        let relative = path
             .trim_start_matches("schemas/")
             .trim_end_matches(".json");
+        let (name, retired) = relative
+            .split_once('/')
+            .map_or((relative, None), |(name, version)| (name, Some(version)));
         let document = &parsed(std::slice::from_ref(&path))[&path];
         if !NAMES.contains(&name) {
             problems.push(format!("{path}: isn't one of the published schemas"));
@@ -74,7 +78,11 @@ fn each_schema_is_valid_json_schema_at_its_versioned_id() {
             .get("$id")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let version = schemas.current_version(name).unwrap_or_default();
+        let version = retired
+            .and_then(|version| version.strip_prefix('v'))
+            .map(str::to_string)
+            .or_else(|| schemas.current_version(name))
+            .unwrap_or_default();
         if id != Schemas::id(name, &version) || version.split('.').count() != 3 {
             problems.push(format!(
                 "{path}: $id {id} isn't {SCHEMA_URL}{name}/v<major.minor.patch>.json"
@@ -114,10 +122,15 @@ fn a_file_breaking_its_schema_is_reported() {
     let mut broken = parsed(&[path])[path].clone();
     broken["bogus"] = json!(1);
     broken["type"] = json!("hovercraft");
-    let catalog = Catalog {
-        files: [(path.to_string(), broken)].into(),
-    };
+    broken["market_variants"] = json!({"CA": {"markets": ["CA"]}});
+    let catalog = Catalog::new([(path.to_string(), broken)].into());
     let errors = schema_errors(&schemas, &catalog);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.starts_with("components/tq/2025/hpr60_ca.json resolved")),
+        "{errors:?}"
+    );
     assert!(
         errors.iter().any(|error| error.contains("/type")),
         "{errors:?}"

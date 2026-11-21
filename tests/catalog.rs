@@ -1,6 +1,6 @@
 use bikebook_data_checks::*;
 use rayon::prelude::*;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const PHOTO_URL: &str = "https://bikebook.bikeindex.org/";
 
@@ -15,9 +15,10 @@ fn unprefixed(id: &str) -> &str {
 
 fn catalog_problems(catalog: &Catalog) -> Vec<String> {
     catalog
-        .files
+        .models()
+        .collect::<Vec<_>>()
         .par_iter()
-        .flat_map_iter(|(path, data)| {
+        .flat_map_iter(|&(path, data)| {
             file_problems(catalog, path, data)
                 .into_iter()
                 .map(move |problem| format!("{path}: {problem}"))
@@ -133,18 +134,13 @@ fn every_file_names_its_own_id_and_what_it_references() {
 #[test]
 fn a_misplaced_or_dangling_file_is_reported() {
     let path = "vehicle_models/specialized/2025/haul_st.json";
-    let overlay = "vehicle_models/specialized/2025/haul_st_ca.json";
-    let catalog = Catalog {
-        files: parsed(&[path, overlay]),
-    };
-    let mut model = catalog.files[path].clone();
-    model["id"] = "m/specialized/2024/haul_st".into();
-    model["first_year"] = 2027.into();
-    model["stock_photo"] = "https://bikebook.bikeindex.org/specialized/2025/haul_lt.png".into();
-    model["motors"] = serde_json::json!([{"id": "c/nobody/2025/motor"}]);
-    let problems = catalog_problems(&Catalog {
-        files: [(path.to_string(), model)].into(),
-    });
+    let model = &parsed(&[path])[path];
+    let mut misplaced = model.clone();
+    misplaced["id"] = "m/specialized/2024/haul_st".into();
+    misplaced["first_year"] = 2027.into();
+    misplaced["stock_photo"] = "https://bikebook.bikeindex.org/specialized/2025/haul_lt.png".into();
+    misplaced["motors"] = json!([{"id": "c/nobody/2025/motor"}]);
+    let problems = catalog_problems(&Catalog::new([(path.to_string(), misplaced)].into()));
     for expected in [
         "isn't its path's",
         "first_year 2027",
@@ -158,13 +154,39 @@ fn a_misplaced_or_dangling_file_is_reported() {
         );
     }
 
-    let problems = catalog_problems(&Catalog {
-        files: [(overlay.to_string(), catalog.files[overlay].clone())].into(),
-    });
+    let overlay = json!({"schema_version": model["schema_version"], "id": "m/specialized/2025/haul_st_ca",
+        "base": "m/specialized/2025/haul_st"});
+    let problems = catalog_problems(&Catalog::new(
+        [(
+            "vehicle_models/specialized/2025/haul_st_ca.json".to_string(),
+            overlay,
+        )]
+        .into(),
+    ));
     assert!(
         problems
             .iter()
-            .any(|problem| problem.contains("isn't in this repo")),
+            .any(|problem| problem
+                .contains("its base m/specialized/2025/haul_st isn't in this repo")),
         "{problems:?}"
+    );
+}
+
+#[test]
+fn a_market_variant_is_checked_as_a_model_and_its_id_found() {
+    let motor_path = "components/tq/2025/hpr60.json";
+    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let mut files = parsed(&[motor_path, path]);
+    files.get_mut(motor_path).unwrap()["market_variants"] = json!({"US": {"markets": ["US"]}});
+    let model = files.get_mut(path).unwrap();
+    model["motors"] = json!([{"id": "c/tq/2025/hpr60_us"}]);
+    model["market_variants"] =
+        json!({"CA": {"markets": ["CA"], "motors": {"0": {"id": "c/tq/2025/hpr60_ca"}}}});
+    let problems = catalog_problems(&Catalog::new(files));
+    assert_eq!(
+        problems,
+        [
+            "vehicle_models/specialized/2025/haul_st_ca.json: its motor c/tq/2025/hpr60_ca isn't in this repo"
+        ]
     );
 }
