@@ -1,5 +1,6 @@
 //! bike_data's latest commit, which the catalog's names, primary activities and wheel sizes come from
 
+use bikebook_data_checks::dashed;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -19,6 +20,8 @@ pub struct BikeData {
     directory: PathBuf,
     /// What bike_data doesn't hold
     additions: Value,
+    /// Its slugs spelled as schema 2.0.0 does
+    dashes: bool,
 }
 
 pub struct Activity {
@@ -43,7 +46,7 @@ fn git(arguments: &[&str]) -> String {
 
 impl BikeData {
     /// Cloned once per commit
-    pub fn fetch() -> BikeData {
+    pub fn fetch(dashes: bool) -> BikeData {
         let cache = std::env::temp_dir().join("bike_data");
         let latest = git(&["ls-remote", REPOSITORY, "HEAD"])
             .split_whitespace()
@@ -63,10 +66,10 @@ impl BikeData {
             }
             cloned
         };
-        BikeData::new(directory)
+        BikeData::new(directory, dashes)
     }
 
-    fn new(directory: PathBuf) -> BikeData {
+    fn new(directory: PathBuf, dashes: bool) -> BikeData {
         BikeData {
             commit: directory.file_name().unwrap().to_string_lossy().to_string(),
             directory,
@@ -74,6 +77,7 @@ impl BikeData {
                 "../../../catalog_snapshot/bike_data_additions.json"
             ))
             .unwrap(),
+            dashes,
         }
     }
 
@@ -97,9 +101,10 @@ impl BikeData {
             .filter(|word| !word.is_empty())
             .collect::<Vec<_>>()
             .join("_");
-        self.additions["slug_aliases"][&slug]
+        let slug = self.additions["slug_aliases"][&slug]
             .as_str()
-            .map_or(slug, str::to_string)
+            .map_or(slug, str::to_string);
+        if self.dashes { dashed(&slug) } else { slug }
     }
 
     fn named(&self, name: &str) -> (String, String) {
@@ -283,7 +288,7 @@ mod tests {
         files
             .iter()
             .for_each(|(file, body)| fs::write(directory.join("data").join(file), body).unwrap());
-        BikeData::new(directory)
+        BikeData::new(directory, false)
     }
 
     #[test]
@@ -292,6 +297,21 @@ mod tests {
         assert_eq!(data.slugify("Cross-Country (XC)"), "cross_country");
         assert_eq!(data.slugify("Bell/Noisemaker"), "bell_noisemaker");
         assert_eq!(data.slugify("Carbon or Composite"), "carbon");
+    }
+
+    #[test]
+    fn slugify_spells_a_slug_as_schema_2_0_0_does() {
+        let data = BikeData {
+            dashes: true,
+            ..bike_data(&[])
+        };
+        assert_eq!(data.slugify("Cross-Country (XC)"), "cross-country");
+        assert_eq!(data.slugify("Bell/Noisemaker"), "bellnoisemaker");
+        assert_eq!(data.slugify("Carbon or Composite"), "composite");
+        assert_eq!(
+            data.slugify("6 Speed Pinion Gearbox Front"),
+            "6-speed-pinion-gearbox"
+        );
     }
 
     #[test]
