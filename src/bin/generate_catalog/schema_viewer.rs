@@ -2,34 +2,33 @@
 //! many vehicle models hold each value and a few that do.
 //!
 //! What goes where. Each rule's specifics are in the constant it names:
-//! - Documents, as tabs in this order: `DOCUMENTS`. Those with counts: `COUNTED`. Top-level fields left out: `HIDDEN`.
+//! - Documents, as tabs in this order: `DOCUMENTS`. Top-level fields left out: `HIDDEN`.
 //! - `type`: the schema's, renamed by `TYPES`. An object has its fields under `fields`, and an object of records under
 //!   their ids names the id as `keyed_by` (`KEYED_BY`) and has the record's fields under `each`. Any other object is a
 //!   `hash`. A list of records is an `array` with the record's fields under `each`, a list of values one with their
 //!   type as `of`.
 //! - `unit`: the schema's `x-unit`.
-//! - `description`: the schema's, less the unit it names (`UNIT_NAMES`), its first letter lowercased unless it starts
-//!   an acronym or a name in title case. One naming values one by one, "a: …; b and c: …", gives each value its part,
-//!   and is left off the field when it names nothing but the field's values.
+//! - `description`: the schema's, less the unit it names ("Reach, in millimeters" is `reach`), its first letter
+//!   lowercased unless it starts an acronym or a name in title case. One naming values one by one, "a: …; b and c: …",
+//!   gives each value its part, and is left off the field when it names nothing but the field's values.
 //! - `values`: an enum's in its order, or a bool's true then false. A value's `description` is what the field's says
 //!   of it, else its display name in the published vocabulary where that says more than the value. Another document's
 //!   field takes the names of the vehicle_model field `NAMED_LIKE` gives it.
-//! - `models_count` and `example_ids`: on a value, the models holding it; on a string, a number or a list of them, the
-//!   models filling it. The examples are up to `REPRESENTATIVE_EXAMPLES` of bikebook's representative vehicles, then up
-//!   to `OTHER_EXAMPLES` others, each the best by a maker none picked has, then a type none has, the newest year and
-//!   the most fields filled.
+//! - `models_count` and `example_ids`, on vehicle_model's fields: on a value, the models holding it; on a string, a
+//!   number or a list of them, the models filling it. The examples are up to `REPRESENTATIVE_EXAMPLES` of bikebook's
+//!   representative vehicles, then up to `OTHER_EXAMPLES` others, each the best by a maker none picked has, then a
+//!   type none has, the newest year (its `years`, else its final or first year) and the most fields filled.
 
+use crate::index::year_records;
 use crate::ruby::{array, blank};
 use bikebook_data_checks::Schemas;
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const DOCUMENTS: [&str; 3] = ["vehicle_model", "component", "e_vehicle_classification"];
-/// An example links to a vehicle model's page
-const COUNTED: [&str; 1] = ["vehicle_model"];
-/// Each file's bookkeeping, not what it says of a vehicle
+/// Each file's bookkeeping, and its market variants, which restate its own fields
 const HIDDEN: [&str; 4] = ["$schema", "schema_version", "id", "market_variants"];
 /// `<document>.<path>` and the vehicle_model definition the vocabulary names its values under
 const NAMED_LIKE: [(&str, &str); 5] = [
@@ -47,24 +46,6 @@ const NAMED_LIKE: [(&str, &str); 5] = [
 ];
 const TYPES: [(&str, &str); 2] = [("number", "float"), ("boolean", "bool")];
 const KEYED_BY: [(&str, &str); 1] = [("years", "year")];
-/// How a description names each unit: "Reach, in millimeters" is Reach, in mm
-const UNIT_NAMES: [(&str, &str); 15] = [
-    ("mm", "millimeters"),
-    ("degrees", "degrees"),
-    ("kg", "kilograms"),
-    ("l", "liters"),
-    ("w", "watts"),
-    ("wh", "watt-hours"),
-    ("v", "volts"),
-    ("nm", "newton-meters"),
-    ("c", "degrees Celsius"),
-    ("km", "kilometers"),
-    ("km/h", "kilometers per hour"),
-    ("cents", "cents"),
-    ("teeth", "teeth"),
-    ("minutes", "minutes"),
-    ("years", "years"),
-];
 const REPRESENTATIVE_EXAMPLES: usize = 3;
 const OTHER_EXAMPLES: usize = 5;
 
@@ -74,9 +55,11 @@ type Key = (String, Option<String>);
 /// A vehicle model, as `examples` picks among them
 struct Model<'a> {
     id: &'a str,
+    maker: &'a str,
     kind: Option<&'a str>,
     newest_year: Option<i64>,
     keys: usize,
+    representative: bool,
 }
 
 /// `names`: the vocabulary's display names, by the vehicle_model definition they name the values of
@@ -93,28 +76,28 @@ pub fn call(
     let documents: Map<String, Value> = DOCUMENTS
         .iter()
         .map(|&name| {
+            let document = schema(name);
             let reader = Reader {
                 documents: &schemas.documents,
                 name,
-                document: schema(name),
+                document,
                 names,
             };
-            let fields = reader.fields(&schema(name)["properties"], "");
-            let fields = if COUNTED.contains(&name) {
+            let fields = reader.fields(&document["properties"], "");
+            let fields = if name == "vehicle_model" {
                 counted(&fields, "", &stats(&fields, models, representatives))
             } else {
                 fields
             };
             (
                 name.to_string(),
-                json!({"url": schema(name)["$id"], "fields": fields}),
+                json!({"url": document["$id"], "fields": fields}),
             )
         })
         .collect();
-    let vehicle = schema("vehicle_model");
     json!({
         "schema_version": schemas.current_version("vehicle_model"),
-        "versioning": vehicle["description"],
+        "versioning": schema("vehicle_model")["description"],
         "representative_ids": representatives,
         "documents": documents,
     })
@@ -150,9 +133,6 @@ impl Reader<'_> {
         let items = self.resolved(self.document, &schema["items"]);
         let records = &schema["additionalProperties"];
         let unit = schema["x-unit"].as_str();
-        let keyed_by = || {
-            lookup(&KEYED_BY, path).unwrap_or_else(|| panic!("KEYED_BY names no key for {path}"))
-        };
         let (kind, of, keyed_by, children) = match type_of(&schema) {
             "object" if schema.get("properties").is_some() => (
                 "object",
@@ -163,7 +143,10 @@ impl Reader<'_> {
             "object" if records.get("properties").is_some() => (
                 "object",
                 None,
-                Some(keyed_by()),
+                Some(
+                    lookup(&KEYED_BY, path)
+                        .unwrap_or_else(|| panic!("KEYED_BY names no key for {path}")),
+                ),
                 Some(("each", &records["properties"])),
             ),
             "object" => ("hash", None, None, None),
@@ -224,21 +207,25 @@ impl Reader<'_> {
             &self.documents[url]
         };
         let definition = self.resolved(document, document.pointer(pointer).unwrap());
-        let own = schema
+        with(&definition, schema.as_object().unwrap().clone())
             .as_object()
             .unwrap()
-            .iter()
-            .filter(|(key, _)| *key != "$ref");
-        Value::Object(
-            definition
-                .as_object()
-                .unwrap()
-                .clone()
-                .into_iter()
-                .chain(own.map(|(key, value)| (key.clone(), value.clone())))
-                .collect(),
-        )
+            .clone()
+            .into_iter()
+            .filter(|(key, _)| key != "$ref")
+            .collect()
     }
+}
+
+/// The object with `added` over its own
+fn with(object: &Value, added: impl IntoIterator<Item = (String, Value)>) -> Value {
+    object
+        .as_object()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .chain(added)
+        .collect()
 }
 
 fn joined(prefix: &str, name: &str) -> String {
@@ -256,7 +243,6 @@ fn lookup(table: &[(&'static str, &'static str)], key: &str) -> Option<&'static 
         .map(|(_, value)| *value)
 }
 
-/// The first type that isn't null
 fn type_of(schema: &Value) -> &str {
     match &schema["type"] {
         Value::Array(types) => types
@@ -272,18 +258,15 @@ fn name_of(kind: &str) -> &str {
     lookup(&TYPES, kind).unwrap_or(kind)
 }
 
-/// Less a closing ", in <unit>" or a whole "In <unit>"
+/// On a field with a unit, less a closing ", in <unit>" or a whole "In <unit>"
 fn described(description: &str, unit: Option<&str>) -> String {
-    let named = unit.and_then(|unit| lookup(&UNIT_NAMES, unit));
-    let description = named.map_or(description, |named| {
-        description
-            .strip_suffix(&format!(", in {named}"))
-            .unwrap_or(if description == format!("In {named}") {
-                ""
-            } else {
-                description
-            })
-    });
+    let unitless = |phrase: &str| !phrase.contains(',');
+    let description = match description.rsplit_once(", in ") {
+        _ if unit.is_none() => description,
+        Some((rest, phrase)) if unitless(phrase) => rest,
+        _ if description.starts_with("In ") && unitless(description) => "",
+        _ => description,
+    };
     let mut words = description.split(' ');
     let first = words.next().unwrap_or_default();
     let capitalized = |word: &str| word.chars().next().is_some_and(char::is_uppercase);
@@ -319,21 +302,10 @@ fn value_descriptions(description: &str) -> Option<Vec<(String, String)>> {
             .then(|| (names, text.to_string()))
     };
     let segments: Vec<&str> = description.split("; ").collect();
-    named(segments[0])?;
-    let described = segments.iter().fold(
-        Vec::<(Vec<String>, String)>::new(),
-        |described, segment| match named(segment) {
-            Some(each) => [described, vec![each]].concat(),
-            None => {
-                let (last, earlier) = described.split_last().unwrap();
-                [
-                    earlier.to_vec(),
-                    vec![(last.0.clone(), format!("{}; {segment}", last.1))],
-                ]
-                .concat()
-            }
-        },
-    );
+    let described = segments
+        .chunk_by(|_, next| named(next).is_none())
+        .map(|group| named(&group.join("; ")))
+        .collect::<Option<Vec<_>>>()?;
     Some(
         described
             .into_iter()
@@ -401,53 +373,40 @@ fn stats(
     // rather than its first makers
     let mut ordered: Vec<(&String, &Value)> = models.iter().collect();
     ordered.sort_by_cached_key(|(id, _)| crate::digest(id));
-    let held: Vec<(Model, Vec<Key>)> = ordered
+    let (models, keys): (Vec<Model>, Vec<BTreeSet<Key>>) = ordered
         .par_iter()
         .map(|(id, vehicle)| {
-            let mut keys = keys(fields, vehicle, "");
-            keys.sort();
-            keys.dedup();
+            let keys = keys(fields, vehicle, "");
             let model = Model {
                 id,
+                maker: id.split('/').nth(1).unwrap_or_default(),
                 kind: vehicle["type"].as_str(),
                 newest_year: newest_year(vehicle),
                 keys: keys.len(),
+                representative: representatives.iter().any(|each| each == *id),
             };
             (model, keys)
         })
-        .collect();
-    let holders = held.iter().enumerate().fold(
-        HashMap::<&Key, (Vec<usize>, Vec<usize>)>::new(),
-        |mut holders, (index, (model, keys))| {
-            let representative = representatives.iter().any(|id| id == model.id);
-            keys.iter().for_each(|key| {
-                let (held_by_representatives, others) = holders.entry(key).or_default();
-                if representative {
-                    held_by_representatives
-                } else {
-                    others
-                }
-                .push(index);
-            });
+        .unzip();
+    let holders = keys.iter().enumerate().fold(
+        HashMap::<&Key, Vec<usize>>::new(),
+        |mut holders, (index, keys)| {
+            keys.iter()
+                .for_each(|key| holders.entry(key).or_default().push(index));
             holders
         },
     );
-    let models: Vec<&Model> = held.iter().map(|(model, _)| model).collect();
     holders
         .into_par_iter()
-        .map(|(key, (representatives, others))| {
-            let picked = examples(&models, &representatives, &others);
-            (key.clone(), (representatives.len() + others.len(), picked))
-        })
+        .map(|(key, holding)| (key.clone(), (holding.len(), examples(&models, &holding))))
         .collect()
 }
 
 /// The keys a record holds: each enum value or bool, and each string or number (or list of them) it fills
-fn keys(fields: &Map<String, Value>, record: &Value, prefix: &str) -> Vec<Key> {
+fn keys(fields: &Map<String, Value>, record: &Value, prefix: &str) -> BTreeSet<Key> {
     fields
         .iter()
-        .filter(|(name, _)| !record[name.as_str()].is_null())
-        .flat_map(|(name, field)| {
+        .flat_map(|(name, field)| -> BTreeSet<Key> {
             let path = joined(prefix, name);
             let value = &record[name.as_str()];
             match (&field["each"], &field["fields"]) {
@@ -464,8 +423,8 @@ fn keys(fields: &Map<String, Value>, record: &Value, prefix: &str) -> Vec<Key> {
                     .filter_map(text)
                     .map(|text| (path.clone(), Some(text)))
                     .collect(),
-                _ if filled(field) && !blank(Some(value)) => vec![(path, None)],
-                _ => vec![],
+                _ if filled(field) && !blank(Some(value)) => BTreeSet::from([(path, None)]),
+                _ => BTreeSet::new(),
             }
         })
         .collect()
@@ -488,11 +447,11 @@ fn text(value: &Value) -> Option<String> {
     }
 }
 
-/// Its newest year's, else its final year, else its first
 fn newest_year(vehicle: &Value) -> Option<i64> {
-    vehicle["years"]
-        .as_object()
-        .and_then(|years| years.keys().filter_map(|year| year.parse().ok()).max())
+    year_records(vehicle)
+        .into_iter()
+        .map(|(year, _)| year)
+        .max()
         .or_else(|| {
             ["final_year", "first_year"]
                 .iter()
@@ -506,15 +465,6 @@ fn counted(
     prefix: &str,
     stats: &HashMap<Key, (usize, Vec<String>)>,
 ) -> Map<String, Value> {
-    let with = |entry: &Value, added: Vec<(String, Value)>| -> Value {
-        entry
-            .as_object()
-            .unwrap()
-            .clone()
-            .into_iter()
-            .chain(added)
-            .collect()
-    };
     let with_count = |entry: &Value, key: Key| {
         let count = stats.get(&key).map(|(count, examples)| {
             vec![
@@ -551,24 +501,24 @@ fn counted(
         .collect()
 }
 
-fn examples(models: &[&Model], representatives: &[usize], others: &[usize]) -> Vec<String> {
-    let picked = pick(models, representatives, REPRESENTATIVE_EXAMPLES, vec![]);
+fn examples(models: &[Model], holding: &[usize]) -> Vec<String> {
+    let (representatives, others): (Vec<usize>, Vec<usize>) = holding
+        .iter()
+        .partition(|&&index| models[index].representative);
+    let picked = pick(models, &representatives, REPRESENTATIVE_EXAMPLES, vec![]);
     let count = picked.len() + OTHER_EXAMPLES;
-    pick(models, others, count, picked)
+    pick(models, &others, count, picked)
         .into_iter()
         .map(|index| models[index].id.to_string())
         .collect()
 }
 
-fn pick(models: &[&Model], pool: &[usize], up_to: usize, picked: Vec<usize>) -> Vec<usize> {
-    let maker = |id: &str| id.split('/').nth(1).map(String::from);
+fn pick(models: &[Model], pool: &[usize], up_to: usize, picked: Vec<usize>) -> Vec<usize> {
     (picked.len()..up_to).fold(picked, |picked, _| {
         let score = |index: usize| {
-            let model = models[index];
+            let model = &models[index];
             (
-                picked
-                    .iter()
-                    .all(|&each| maker(models[each].id) != maker(model.id)),
+                picked.iter().all(|&each| models[each].maker != model.maker),
                 picked.iter().all(|&each| models[each].kind != model.kind),
                 model.newest_year,
                 model.keys,
@@ -576,12 +526,10 @@ fn pick(models: &[&Model], pool: &[usize], up_to: usize, picked: Vec<usize>) -> 
         };
         let best = pool
             .iter()
-            .enumerate()
-            .filter(|(_, index)| !picked.contains(index))
-            .max_by_key(|&(position, &index)| (score(index), Reverse(position)))
-            .map(|(_, &index)| index);
+            .filter(|index| !picked.contains(index))
+            .max_by_key(|&&index| (score(index), Reverse(index)));
         match best {
-            Some(index) => [picked, vec![index]].concat(),
+            Some(&index) => [picked, vec![index]].concat(),
             None => picked,
         }
     })
@@ -697,12 +645,11 @@ mod tests {
             "years": {"2025": {"url_live": true}, "2024": {"url_live": false}}, "frame": {"material": "steel"},
             "sizes": [{"name": "M"}], "extra": {"bb_drop": 70},
         });
-        let mut keys = keys(fields.as_object().unwrap(), &model, "");
-        keys.sort();
+        let keys = keys(fields.as_object().unwrap(), &model, "");
         let key = |path: &str, value: Option<&str>| (path.to_string(), value.map(String::from));
         assert_eq!(
             keys,
-            [
+            BTreeSet::from([
                 key("first_year", None),
                 key("frame.material", Some("steel")),
                 key("model", None),
@@ -711,28 +658,29 @@ mod tests {
                 key("sizes.name", None),
                 key("years.url_live", Some("false")),
                 key("years.url_live", Some("true")),
-            ]
+            ])
         );
     }
 
     #[test]
     fn examples_take_representatives_then_others_by_new_maker_new_type_and_newest_year() {
-        let model = |id, kind, newest_year| Model {
+        let model = |id: &'static str, kind, newest_year, representative| Model {
             id,
+            maker: id.split('/').nth(1).unwrap(),
             kind: Some(kind),
             newest_year: Some(newest_year),
             keys: 10,
+            representative,
         };
         let models = [
-            model("m/a/2025/one", "bike", 2025),
-            model("m/a/2025/two", "tandem", 2025),
-            model("m/b/2025/three", "bike", 2025),
-            model("m/c/2020/old", "tricycle", 2020),
-            model("m/d/2025/four", "tricycle", 2025),
+            model("m/a/2025/one", "bike", 2025, false),
+            model("m/a/2025/two", "tandem", 2025, true),
+            model("m/b/2025/three", "bike", 2025, false),
+            model("m/c/2020/old", "tricycle", 2020, false),
+            model("m/d/2025/four", "tricycle", 2025, false),
         ];
-        let models: Vec<&Model> = models.iter().collect();
         assert_eq!(
-            examples(&models, &[1], &[0, 2, 3, 4]),
+            examples(&models, &[0, 1, 2, 3, 4]),
             [
                 "m/a/2025/two",
                 "m/b/2025/three",
