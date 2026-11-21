@@ -60,7 +60,7 @@ fn main() {
             .filter_map(|slug| Some(slug.as_str()?.to_string()))
             .collect()
     };
-    let bike_data = BikeData::fetch();
+    let bike_data = BikeData::fetch(dashes(&schema_version));
     println!("bike_data at {}", bike_data.commit);
     let activities = bike_data.primary_activities();
     let markets = Markets::load(&vocabulary_schema);
@@ -105,11 +105,21 @@ fn main() {
             incomplete: incomplete.contains_key(id),
         })
         .collect();
-    let index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
+    let mut index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
+    // The snapshots spell ids and slugs as schema 1.x does
+    if dashes(&schema_version) {
+        let options = &index_snapshot["filter_options"]["e_vehicle_classification"];
+        index_snapshot["filter_options"]["e_vehicle_classification"] = options
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, name)| (id.replace('_', "-"), name.clone()))
+            .collect();
+    }
     let vocabulary_snapshot = snapshot(include_str!("../../../catalog_snapshot/vocabulary.json"));
-    let families: BTreeMap<&str, &str> = activities
+    let families: BTreeMap<String, &str> = activities
         .iter()
-        .map(|activity| (&*activity.slug, &*activity.family))
+        .map(|activity| (dashed(&activity.slug), &*activity.family))
         .collect();
     let bike_data_names = bike_data.names(&activities);
     let names: Map<String, Value> = vehicle_schema["$defs"]
@@ -127,7 +137,17 @@ fn main() {
                         (slug, json!(name))
                     })
                     .collect(),
-                None => vocabulary_snapshot["names"].get(field)?.clone(),
+                None => vocabulary_snapshot["names"]
+                    .get(field)?
+                    .as_object()?
+                    .iter()
+                    .map(|(slug, name)| {
+                        let spelled = enumerated(field)
+                            .into_iter()
+                            .find(|value| dashed(value) == dashed(slug));
+                        (spelled.unwrap_or_else(|| slug.clone()), name.clone())
+                    })
+                    .collect(),
             };
             Some((field.clone(), named))
         })
@@ -143,7 +163,7 @@ fn main() {
             .map(|row| {
                 let family = row.vehicle["primary_activity"]
                     .as_str()
-                    .and_then(|activity| families.get(activity));
+                    .and_then(|activity| families.get(&dashed(activity)));
                 (
                     family.map(|family| family.to_string()),
                     comparison::call(row.vehicle, &classifications),

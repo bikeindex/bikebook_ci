@@ -13,7 +13,7 @@ linked() {
   [ -z "$2" ] || { git grep -h -o -E "\"$1\": \"c/[^\"]+\"" "$head" -- $2 || true; } |
     sed -E 's|.*"c/(.*)"|components/\1.json|' | sort -u |
     while read -r path; do
-      git cat-file -e "$head:$path" 2>/dev/null && echo "$path" || sed -E 's/_[a-z]{2}\.json$/.json/' <<<"$path"
+      git cat-file -e "$head:$path" 2>/dev/null && echo "$path" || sed -E 's/[-_][a-z]{2}\.json$/.json/' <<<"$path"
     done | sort -u
 }
 # The base's list, so a branch can't add to its own

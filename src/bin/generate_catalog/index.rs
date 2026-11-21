@@ -2,10 +2,11 @@
 
 use crate::markets::{Classifications, Markets};
 use crate::ruby::{blank, truthy};
+use bikebook_data_checks::dashed;
 use serde_json::{Value, json};
 
 pub const PHOTO_URL: &str = "https://bikebook.bikeindex.org";
-const ELECTRIC_PROPULSIONS: [&str; 3] = ["pedal_assist", "throttle", "pedal_assist_and_throttle"];
+const ELECTRIC_PROPULSIONS: [&str; 3] = ["pedal-assist", "throttle", "pedal-assist-and-throttle"];
 
 pub struct Row<'a> {
     pub id: &'a str,
@@ -130,7 +131,7 @@ fn electric(vehicle: &Value) -> Value {
             .into_iter()
             .any(|item| item
                 .as_str()
-                .is_some_and(|item| ELECTRIC_PROPULSIONS.contains(&item)))
+                .is_some_and(|item| ELECTRIC_PROPULSIONS.contains(&dashed(item).as_str())))
     )
 }
 
@@ -204,6 +205,9 @@ mod tests {
             electric(&json!({"propulsion": ["human", "throttle"]})),
             json!(true)
         );
+        for propulsion in ["pedal_assist", "pedal-assist"] {
+            assert_eq!(electric(&json!({"propulsion": [propulsion]})), json!(true));
+        }
     }
 
     #[test]
