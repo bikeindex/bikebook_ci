@@ -123,12 +123,9 @@ fn a_file_breaking_its_schema_is_reported() {
     broken["bogus"] = json!(1);
     broken["type"] = json!("hovercraft");
     broken["market_variants"] = json!({"CA": {"markets": ["CA"]}});
-    let variant = format!(
-        "components/tq/2025/hpr60{}ca.json",
-        suffix_separator(&broken)
-    );
     let catalog = Catalog::new([(path.to_string(), broken)].into());
     let errors = schema_errors(&schemas, &catalog);
+    let variant = catalog.variants.keys().next().unwrap();
     assert!(
         errors
             .iter()
