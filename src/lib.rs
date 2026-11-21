@@ -161,12 +161,12 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
     );
 }
 
-/// What joins a model's id to a suffix: a market variant's market, a colorway photo's paint. Schema 2.0.0's ids have no
-/// underscores
+/// What joins a model's id to a suffix: a market variant's market, a colorway photo's paint
 pub fn suffix_separator(data: &Value) -> char {
-    match data.get("schema_version").and_then(Value::as_str) {
-        Some(version) if version.starts_with("1.") => '_',
-        _ => '-',
+    if dashes(data["schema_version"].as_str().unwrap_or_default()) {
+        '-'
+    } else {
+        '_'
     }
 }
 
@@ -186,11 +186,7 @@ impl Catalog {
             .values()
             .flat_map(|data| {
                 let id = data.get("id").and_then(Value::as_str).unwrap_or_default();
-                let separator = if dashes(data["schema_version"].as_str().unwrap_or_default()) {
-                    '-'
-                } else {
-                    '_'
-                };
+                let separator = suffix_separator(data);
                 data.get("market_variants")
                     .and_then(Value::as_object)
                     .into_iter()
