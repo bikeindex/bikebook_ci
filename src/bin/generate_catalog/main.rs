@@ -265,11 +265,10 @@ fn write_blocks(
         .collect()
 }
 
-/// Each base's market variants: the overlays over it that state their own markets
+/// Each base's market variants: the overlays over it that state their own markets, its `market_variants` among them
 fn market_variants(catalog: &Catalog) -> BTreeMap<String, Vec<String>> {
     catalog
-        .files
-        .iter()
+        .models()
         .filter(|(path, data)| {
             path.starts_with("vehicle_models/") && !ruby::blank(data.get("markets"))
         })
@@ -314,11 +313,12 @@ fn listed<'a>(
         .unzip()
 }
 
-/// Every vehicle model by id, an overlay resolved over its base
+/// Every vehicle model by id, an overlay or a market variant resolved over its base
 fn models(catalog: &Catalog) -> BTreeMap<String, Value> {
     catalog
-        .files
-        .par_iter()
+        .models()
+        .collect::<Vec<_>>()
+        .into_par_iter()
         .filter(|(path, _)| path.starts_with("vehicle_models/"))
         .map(|(path, data)| {
             let resolved = catalog
@@ -562,28 +562,33 @@ mod tests {
 
     #[test]
     fn a_market_variant_is_an_overlay_stating_its_markets() {
-        let catalog = Catalog {
-            files: BTreeMap::from([
-                (
-                    "vehicle_models/acme/2025/one_eu.json".to_string(),
-                    json!({"base": "m/acme/2025/one", "markets": ["EU"]}),
-                ),
-                (
-                    "vehicle_models/acme/2025/one_red.json".to_string(),
-                    json!({"base": "m/acme/2025/one"}),
-                ),
-                (
-                    "vehicle_models/acme/2025/two_gb.json".to_string(),
-                    json!({"markets": ["GB"]}),
-                ),
-            ]),
-        };
+        let catalog = Catalog::new(BTreeMap::from([
+            (
+                "vehicle_models/acme/2025/one_eu.json".to_string(),
+                json!({"base": "m/acme/2025/one", "markets": ["EU"]}),
+            ),
+            (
+                "vehicle_models/acme/2025/one_red.json".to_string(),
+                json!({"base": "m/acme/2025/one"}),
+            ),
+            (
+                "vehicle_models/acme/2025/two.json".to_string(),
+                json!({"schema_version": "1.1.0", "id": "m/acme/2025/two", "markets": ["US"],
+                    "market_variants": {"GB": {"markets": ["GB"]}}}),
+            ),
+        ]));
         assert_eq!(
             market_variants(&catalog),
-            BTreeMap::from([(
-                "m/acme/2025/one".to_string(),
-                vec!["m/acme/2025/one_eu".to_string()]
-            )])
+            BTreeMap::from([
+                (
+                    "m/acme/2025/one".to_string(),
+                    vec!["m/acme/2025/one_eu".to_string()]
+                ),
+                (
+                    "m/acme/2025/two".to_string(),
+                    vec!["m/acme/2025/two_gb".to_string()]
+                ),
+            ])
         );
     }
 

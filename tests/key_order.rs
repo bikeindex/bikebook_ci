@@ -1,6 +1,6 @@
 use bikebook_data_checks::*;
 use rayon::prelude::*;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 fn order_errors(schemas: &Schemas, path: &str, data: &Value) -> Vec<String> {
     let version = data
@@ -52,11 +52,7 @@ fn swapped(value: &Value, first: &str, second: &str) -> Value {
 fn a_reordered_file_is_reported() {
     let schemas = Schemas::load();
     let path = "vehicle_models/specialized/2025/haul_st.json";
-    let overlay_path = "vehicle_models/specialized/2025/haul_st_ca.json";
-    let catalog = Catalog {
-        files: parsed(&[path, overlay_path]),
-    };
-    let model = &catalog.files[path];
+    let model = &parsed(&[path])[path];
     assert_eq!(order_errors(&schemas, path, model), Vec::<String>::new());
 
     let top = swapped(model, "stock_photo", "geometry_photo");
@@ -98,10 +94,34 @@ fn a_reordered_file_is_reported() {
             .any(|error| error.contains("/years: keys must be ordered"))
     );
 
-    let overlay = &catalog.files[overlay_path];
+    let overlay_path = "vehicle_models/specialized/2025/haul_st_ca.json";
+    let overlay = json!({"schema_version": model["schema_version"], "id": "m/specialized/2025/haul_st_ca",
+        "base": "m/specialized/2025/haul_st", "markets": ["CA"]});
     assert_eq!(
-        order_errors(&schemas, overlay_path, overlay),
+        order_errors(&schemas, overlay_path, &overlay),
         Vec::<String>::new()
     );
-    assert!(!order_errors(&schemas, overlay_path, &swapped(overlay, "id", "base")).is_empty());
+    assert!(!order_errors(&schemas, overlay_path, &swapped(&overlay, "id", "base")).is_empty());
+}
+
+#[test]
+fn a_market_variant_is_ordered_as_an_overlay() {
+    let schemas = Schemas::load();
+    let path = "vehicle_models/specialized/2025/haul_st.json";
+    let mut model = parsed(&[path])[path].clone();
+    if schemas.documents[&Schemas::id("vehicle_model", model["schema_version"].as_str().unwrap())]
+        .pointer("/properties/market_variants")
+        .is_none()
+    {
+        return;
+    }
+    model["market_variants"] =
+        json!({"CA": {"model": "Haul ST CA", "frame": false, "markets": ["CA"]}});
+    assert_eq!(order_errors(&schemas, path, &model), Vec::<String>::new());
+    model["market_variants"] = json!({"CA": {"markets": ["CA"], "model": "Haul ST CA"}});
+    assert!(
+        order_errors(&schemas, path, &model)
+            .iter()
+            .any(|error| error.contains("/market_variants/CA: keys must be ordered"))
+    );
 }

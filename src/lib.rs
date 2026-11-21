@@ -108,13 +108,41 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
 
 pub struct Catalog {
     pub files: BTreeMap<String, Value>,
+    /// Each file's `market_variants`, as the overlays over it they stand for, by the path their id names
+    pub variants: BTreeMap<String, Value>,
 }
 
 impl Catalog {
     pub fn load() -> Catalog {
-        Catalog {
-            files: parsed(&data_paths()),
-        }
+        Catalog::new(parsed(&data_paths()))
+    }
+
+    pub fn new(files: BTreeMap<String, Value>) -> Catalog {
+        let variants = files
+            .values()
+            .flat_map(|data| {
+                let id = data.get("id").and_then(Value::as_str).unwrap_or_default();
+                data.get("market_variants")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(move |(market, variant)| {
+                        let variant_id = format!("{id}_{}", market.to_lowercase());
+                        let mut overlay = Map::new();
+                        overlay.insert("schema_version".into(), data["schema_version"].clone());
+                        overlay.insert("id".into(), variant_id.clone().into());
+                        overlay.insert("base".into(), id.into());
+                        overlay.extend(variant.as_object()?.clone());
+                        Some((Catalog::path(&variant_id)?, Value::Object(overlay)))
+                    })
+            })
+            .collect();
+        Catalog { files, variants }
+    }
+
+    /// The files, then the market variants
+    pub fn models(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.files.iter().chain(&self.variants)
     }
 
     pub fn kind(path: &str) -> &'static str {
@@ -147,13 +175,19 @@ impl Catalog {
     }
 
     pub fn by_id(&self, id: &str) -> Option<&Value> {
-        self.files.get(&Catalog::path(id)?)
+        let path = Catalog::path(id)?;
+        self.files.get(&path).or_else(|| self.variants.get(&path))
     }
 
-    /// An overlay applied over its base; any other file as it is
+    /// An overlay applied over its base; any other file as it is. Neither keeps the market variants, each a model of
+    /// its own
     pub fn resolve(&self, data: &Value) -> Result<Value, String> {
         let Some(base_id) = data.get("base").and_then(Value::as_str) else {
-            return Ok(data.clone());
+            let mut resolved = data.clone();
+            if let Some(map) = resolved.as_object_mut() {
+                map.shift_remove("market_variants");
+            }
+            return Ok(resolved);
         };
         let base = self
             .by_id(base_id)
@@ -181,7 +215,7 @@ fn vehicle(data: &Value) -> Map<String, Value> {
     data.as_object()
         .into_iter()
         .flatten()
-        .filter(|(key, _)| *key != "schema_version" && *key != "id")
+        .filter(|(key, _)| !["schema_version", "id", "market_variants"].contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect()
 }
@@ -303,18 +337,27 @@ pub fn image_url(key: &str, string: &str) -> bool {
     named || image
 }
 
-/// The published schemas, by `$id`
+/// The published schemas, by `$id`: each current one at `schemas/<name>.json`, and each older version a file still
+/// names at `schemas/<name>/v<version>.json`
 pub struct Schemas {
     pub documents: HashMap<String, Value>,
+    current: Vec<String>,
 }
 
 impl Schemas {
     pub fn load() -> Schemas {
-        let documents = parsed(&json_paths(SCHEMA_DIRECTORY))
-            .into_values()
-            .filter_map(|document| Some((document.get("$id")?.as_str()?.to_string(), document)))
+        let files = parsed(&json_paths(SCHEMA_DIRECTORY));
+        let id = |document: &Value| Some(document.get("$id")?.as_str()?.to_string());
+        let current = files
+            .iter()
+            .filter(|(path, _)| path.matches('/').count() == 1)
+            .filter_map(|(_, document)| id(document))
             .collect();
-        Schemas { documents }
+        let documents = files
+            .into_values()
+            .filter_map(|document| Some((id(&document)?, document)))
+            .collect();
+        Schemas { documents, current }
     }
 
     pub fn id(name: &str, version: &str) -> String {
@@ -323,8 +366,8 @@ impl Schemas {
 
     pub fn current_version(&self, name: &str) -> Option<String> {
         let prefix = format!("{SCHEMA_URL}{name}/v");
-        self.documents
-            .keys()
+        self.current
+            .iter()
             .find_map(|id| Some(id.strip_prefix(&prefix)?.strip_suffix(".json")?.to_string()))
     }
 
@@ -430,7 +473,7 @@ impl Schemas {
 
     /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
     /// doesn't name after them sorted, and a year-keyed object newest first. An overlay's removals (null, or false
-    /// for an object) are left out, since they follow what it changes
+    /// for an object), a market variant's among them, are left out, since they follow what it changes
     pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
         let mut errors = vec![];
         let overlay = value.get("base").is_some();
@@ -541,7 +584,7 @@ impl Schemas {
                             schema,
                             child,
                             format!("{path}/{key}"),
-                            overlay,
+                            overlay || path == "/market_variants",
                             errors,
                         );
                     }
@@ -596,9 +639,10 @@ mod tests {
             "sizes": [{"name": "S", "reach": 1}, {"name": "M", "reach": 2}]});
         let overlay = json!({"schema_version": "1.0.0", "id": "m/acme/2025/one_ca", "base": "m/acme/2025/one", "markets": ["CA"],
             "frame": false, "sizes": {"M": {"reach": 3}, "L": {"name": "L", "reach": 4}}});
-        let catalog = Catalog {
-            files: BTreeMap::from([("vehicle_models/acme/2025/one.json".to_string(), base)]),
-        };
+        let catalog = Catalog::new(BTreeMap::from([(
+            "vehicle_models/acme/2025/one.json".to_string(),
+            base,
+        )]));
         let resolved = catalog.resolve(&overlay).unwrap();
         assert_eq!(resolved["id"], "m/acme/2025/one_ca");
         assert_eq!(resolved["markets"], json!(["CA"]));
@@ -606,6 +650,28 @@ mod tests {
         assert_eq!(
             resolved["sizes"],
             json!([{"name": "S", "reach": 1}, {"name": "M", "reach": 3}, {"name": "L", "reach": 4}])
+        );
+    }
+
+    #[test]
+    fn a_market_variant_resolves_as_an_overlay_and_its_base_without_it() {
+        let base = json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
+            "market_variants": {"US": {"markets": ["US"], "model": "One US"}}});
+        let catalog = Catalog::new(BTreeMap::from([(
+            "vehicle_models/acme/2025/one.json".to_string(),
+            base.clone(),
+        )]));
+        let variant = catalog.by_id("m/acme/2025/one_us").unwrap();
+        assert_eq!(
+            catalog.resolve(variant).unwrap(),
+            json!({"schema_version": "1.1.0", "id": "m/acme/2025/one_us", "markets": ["US"], "model": "One US"})
+        );
+        assert!(
+            catalog
+                .resolve(&base)
+                .unwrap()
+                .get("market_variants")
+                .is_none()
         );
     }
 
