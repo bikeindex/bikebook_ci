@@ -28,7 +28,7 @@ Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `
 
 A change to the published layout is a new format, published beside the one before it until every reader has moved to it. `.claude/skills/format-update` has the steps.
 
-The `schema_viewer` is what Bike Index's schema viewer shows: the current schema of each document as its fields, with how many models hold each value of a vehicle model's and a few examples of them. What goes where in it is set by the rules at the top of [`src/bin/generate_catalog/schema_viewer.rs`](src/bin/generate_catalog/schema_viewer.rs).
+The `schema_viewer` is what Bike Index's schema viewer shows: the current schema of each document as its fields, with how many models hold each value of a vehicle model's and a few examples of them. What goes where in it is set by the rules at the top of [`src/bin/generate_catalog/schema_viewer.rs`](src/bin/generate_catalog/schema_viewer.rs). It's only rewritten when a schema changes, or those rules do, so its counts are as of that publish. What Bike Index's viewer reads of it is [`schema_viewer_contract.json`](src/bin/generate_catalog/schema_viewer_contract.json): a publish stops on a viewer that breaks it, and a test checks the viewer of every commit the checks run on.
 
 The index lists a model's market variants, its `market_variants` and the overlays over it that state their own `markets`, as its `variants` (each an `id` and its `markets`) rather than as rows of their own. A lookup picks the variant sold in the registrant's country, and the model itself when none is.
 
@@ -42,9 +42,10 @@ Bike Book's own publish workflow runs on each push to its `main`, separately fro
 
 1. It runs the checks against that commit.
 2. It downloads the published catalog from R2 and runs `generate_catalog` over it.
-3. It uploads each of Bike Book's schemas to the stock photos bucket, at the URL its `$id` names, unless that version is already there, since a published version never changes.
-4. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
-5. It purges the manifests from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
+3. It writes the schema viewer, in a step of its own, if a schema changed.
+4. It uploads each of Bike Book's schemas to the stock photos bucket, at the URL its `$id` names, unless that version is already there, since a published version never changes.
+5. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
+6. It purges the manifests from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
 
 **The R2 keys are only ever available here.** A workflow that Bike Book calls runs as Bike Book's run, with Bike Book's secrets. So the keys live in this repository's `catalog` environment, which only `main` can use, and only the download and upload steps get them.
 

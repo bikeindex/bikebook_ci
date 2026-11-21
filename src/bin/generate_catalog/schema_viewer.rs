@@ -21,11 +21,13 @@
 
 use crate::index::year_records;
 use crate::ruby::{array, blank};
-use bikebook_data_checks::Schemas;
+use bikebook_data_checks::{Catalog, Schemas, assert_none, representative_vehicle_ids};
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
+use std::sync::LazyLock;
 
 const DOCUMENTS: [&str; 3] = ["vehicle_model", "component", "e_vehicle_classification"];
 /// Each file's bookkeeping, and its market variants, which restate its own fields
@@ -49,6 +51,14 @@ const KEYED_BY: [(&str, &str); 1] = [("years", "year")];
 const REPRESENTATIVE_EXAMPLES: usize = 3;
 const OTHER_EXAMPLES: usize = 5;
 
+/// What Bike Index's schema viewer reads of the file. A publish stops on a file that breaks it
+static CONTRACT: LazyLock<jsonschema::Validator> = LazyLock::new(|| {
+    jsonschema::validator_for(
+        &serde_json::from_str(include_str!("schema_viewer_contract.json")).unwrap(),
+    )
+    .unwrap()
+});
+
 /// A field's path and a value it holds, `None` for a string or number it fills
 type Key = (String, Option<String>);
 
@@ -60,6 +70,77 @@ struct Model<'a> {
     newest_year: Option<i64>,
     keys: usize,
     representative: bool,
+}
+
+/// Writes each format's schema viewer and names it in that format's manifest, after `generate_catalog` writes them.
+/// A format keeps the viewer it has until a schema, or what writes the viewer, changes, so counts move with them
+pub fn publish(output: &Path) {
+    let schemas = Schemas::load();
+    let source = source_digest(&schemas);
+    let stale: Vec<u64> = crate::FORMATS
+        .into_iter()
+        .filter(|&format| {
+            let published = published(output, format).and_then(|path| crate::read(output, &path));
+            published.is_none_or(|viewer| viewer["source_digest"] != json!(source))
+        })
+        .collect();
+    if stale.is_empty() {
+        return println!("the schemas are unchanged, so each format keeps its schema viewer");
+    }
+    let models = crate::models(&Catalog::load());
+    let representatives = representative_vehicle_ids();
+    stale.into_iter().for_each(|format| {
+        let manifest_path = format!("manifest.{format}.json");
+        let manifest = crate::read(output, &manifest_path)
+            .expect("generate_catalog writes the manifest first");
+        let vocabulary = crate::read(output, manifest["vocabulary"].as_str().unwrap()).unwrap();
+        let viewer = call(
+            &schemas,
+            vocabulary["names"].as_object().unwrap(),
+            &models,
+            &representatives,
+        );
+        let body = with(&json!({"format": format, "source_digest": source}), viewer);
+        assert_none(
+            "the schema viewer Bike Index reads",
+            contract_problems(&body),
+        );
+        let path = crate::write_hashed(output, "schema_viewer", &body);
+        let manifest = with(&manifest, [("schema_viewer".to_string(), json!(path))]);
+        crate::write(output, &manifest_path, &crate::gzip(&manifest.to_string()));
+        println!("wrote {path}");
+    });
+}
+
+/// The viewer the format's manifest names, while it's there
+pub fn published(output: &Path, format: u64) -> Option<String> {
+    let manifest = crate::read(output, &format!("manifest.{format}.json"))?;
+    let path = manifest["schema_viewer"].as_str()?;
+    output.join(path).is_file().then(|| path.to_string())
+}
+
+/// The schemas a viewer reads, and the code and contract that write it
+fn source_digest(schemas: &Schemas) -> String {
+    let documents: Vec<&Value> = DOCUMENTS
+        .iter()
+        .chain(&["vocabulary"])
+        .map(|name| &schemas.documents[&Schemas::id(name, &schemas.current_version(name).unwrap())])
+        .collect();
+    crate::digest(
+        &[
+            json!(documents).to_string().as_str(),
+            include_str!("schema_viewer.rs"),
+            include_str!("schema_viewer_contract.json"),
+        ]
+        .concat(),
+    )
+}
+
+fn contract_problems(viewer: &Value) -> Vec<String> {
+    CONTRACT
+        .iter_errors(viewer)
+        .map(|error| format!("{} {error}", error.instance_path()))
+        .collect()
 }
 
 /// `names`: the vocabulary's display names, by the vehicle_model definition they name the values of
@@ -601,6 +682,47 @@ mod tests {
                 "motors": {"type": "array", "each": {"id": {"type": "string"}}},
                 "extra_measurements": {"type": "hash", "unit": "mm"},
             })
+        );
+    }
+
+    #[test]
+    fn the_catalogs_schema_viewer_is_one_bike_index_reads() {
+        let models = crate::models(&Catalog::load());
+        let viewer = call(
+            &Schemas::load(),
+            &Map::new(),
+            &models,
+            &representative_vehicle_ids(),
+        );
+        assert_none(
+            "the schema viewer Bike Index reads",
+            contract_problems(&json!(viewer)),
+        );
+    }
+
+    #[test]
+    fn a_schema_viewer_bike_index_cant_read_is_reported() {
+        let viewer = json!({
+            "schema_version": "2.0.0",
+            "versioning": "semantic",
+            "representative_ids": [],
+            "documents": {"vehicle_model": {"url": "https://example.com", "fields": {
+                "model": {"type": "string", "models_count": 3},
+                "years": {"type": "object", "keyed_by": "year"},
+                "type": {"type": "string", "values": [{"value": "bike", "models_count": 2, "example_ids": "m/a/2025/one"}]},
+                "frame": {"type": "object", "fields": {"material": {"values": []}}},
+            }}},
+        });
+        let mut problems = contract_problems(&viewer);
+        problems.sort();
+        assert_eq!(
+            problems,
+            [
+                r#"/documents/vehicle_model/fields/frame/fields/material "type" is a required property"#,
+                r#"/documents/vehicle_model/fields/model "example_ids" is a required property"#,
+                r#"/documents/vehicle_model/fields/type/values/0/example_ids "m/a/2025/one" is not of type "array""#,
+                r#"/documents/vehicle_model/fields/years "each" is a required property"#,
+            ]
         );
     }
 

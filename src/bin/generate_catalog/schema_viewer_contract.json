@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What bike_index's Pages::Bikebook::SchemaViewer and SchemaFields components read of a published schema viewer, and so what it can't publish without breaking them",
+  "type": "object",
+  "required": ["schema_version", "versioning", "representative_ids", "documents"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "versioning": {"type": "string"},
+    "representative_ids": {"$ref": "#/$defs/ids"},
+    "documents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url", "fields"],
+        "properties": {
+          "url": {"type": "string"},
+          "fields": {"$ref": "#/$defs/fields"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "ids": {"type": "array", "items": {"type": "string"}},
+    "fields": {"type": "object", "additionalProperties": {"$ref": "#/$defs/field"}},
+    "counted": {
+      "properties": {
+        "models_count": {"type": "integer"},
+        "example_ids": {"$ref": "#/$defs/ids"}
+      },
+      "dependentRequired": {"models_count": ["example_ids"]}
+    },
+    "field": {
+      "type": "object",
+      "required": ["type"],
+      "$ref": "#/$defs/counted",
+      "properties": {
+        "type": {"type": "string"},
+        "of": {"type": "string"},
+        "unit": {"type": "string"},
+        "keyed_by": {"type": "string"},
+        "description": {"type": "string"},
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["value"],
+            "$ref": "#/$defs/counted",
+            "properties": {
+              "value": {"type": ["string", "boolean", "number"]},
+              "description": {"type": "string"}
+            }
+          }
+        },
+        "fields": {"$ref": "#/$defs/fields"},
+        "each": {"$ref": "#/$defs/fields"}
+      },
+      "dependentRequired": {"keyed_by": ["each"]}
+    }
+  }
+}

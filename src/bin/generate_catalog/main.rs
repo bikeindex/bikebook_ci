@@ -31,11 +31,18 @@ fn snapshot(json: &str) -> Value {
 }
 
 fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
     let output = PathBuf::from(
-        std::env::args()
-            .nth(1)
-            .expect("Usage: generate_catalog <output directory>"),
+        arguments
+            .first()
+            .expect("Usage: generate_catalog <output directory> [--schema-viewer]"),
     );
+    if arguments
+        .get(1)
+        .is_some_and(|argument| argument == "--schema-viewer")
+    {
+        return schema_viewer::publish(&output);
+    }
     let catalog = Catalog::load();
     let schemas = Schemas::load();
     let schema = |name: &str| {
@@ -178,7 +185,6 @@ fn main() {
         .map(|row| row.to_json(&markets, &classifications))
         .collect();
     let variants = market_variants(&catalog);
-    let viewer = schema_viewer::call(&schemas, &names, &models, &representative_vehicle_ids());
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
     let referenced: BTreeSet<String> = FORMATS
         .iter()
@@ -222,13 +228,10 @@ fn main() {
                     "comparison",
                     json!({"format": format, "fields": comparison_fields}),
                 ),
-                (
-                    "schema_viewer",
-                    Value::Object([("format".to_string(), json!(format))].into_iter().chain(viewer.clone()).collect()),
-                ),
             ]
             .into_iter()
             .map(|(name, body)| (name, write_hashed(&output, name, &body)))
+            .chain(schema_viewer::published(&output, format).map(|path| ("schema_viewer", path)))
             .collect();
             let mut manifest = json!({"format": format, "published_at": published_at, "schema_version": schema_version});
             files
@@ -494,6 +497,12 @@ fn write_new(root: &Path, path: &str, text: &str) {
     if !gzipped {
         write(root, path, &gzip(text));
     }
+}
+
+/// A file as the bucket serves it, `None` for one that isn't there
+fn read(root: &Path, path: &str) -> Option<Value> {
+    let file = fs::File::open(root.join(path)).ok()?;
+    Some(serde_json::from_reader(flate2::read::GzDecoder::new(file)).unwrap())
 }
 
 /// Stored as the bucket serves it, since each run starts from a download of the bucket
