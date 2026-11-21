@@ -4,6 +4,7 @@ mod completeness;
 mod index;
 mod markets;
 mod ruby;
+mod schema_viewer;
 
 use bike_data::BikeData;
 use bikebook_data_checks::*;
@@ -177,6 +178,7 @@ fn main() {
         .map(|row| row.to_json(&markets, &classifications))
         .collect();
     let variants = market_variants(&catalog);
+    let viewer = schema_viewer::call(&schemas, &names, &models, &representative_vehicle_ids());
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
     let referenced: BTreeSet<String> = FORMATS
         .iter()
@@ -219,6 +221,10 @@ fn main() {
                 (
                     "comparison",
                     json!({"format": format, "fields": comparison_fields}),
+                ),
+                (
+                    "schema_viewer",
+                    Value::Object([("format".to_string(), json!(format))].into_iter().chain(viewer.clone()).collect()),
                 ),
             ]
             .into_iter()

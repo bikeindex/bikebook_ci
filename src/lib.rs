@@ -133,6 +133,15 @@ pub fn data_paths() -> Vec<String> {
         .collect()
 }
 
+pub fn representative_vehicle_ids() -> Vec<String> {
+    let mut reader = csv::Reader::from_path(root().join("representative_vehicles.csv")).unwrap();
+    assert_eq!(reader.headers().unwrap(), vec!["vehicle_id", "notes"]);
+    reader
+        .records()
+        .map(|record| record.unwrap()[0].to_string())
+        .collect()
+}
+
 /// A file that doesn't parse is left out, for `formatting` to report
 pub fn parsed(paths: &[impl AsRef<str> + Sync]) -> BTreeMap<String, Value> {
     paths
