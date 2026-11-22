@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 
 /// The published files' layouts, oldest first, each with its own manifest. A new one is published beside the one before
 /// it until every reader has moved to it: see the format-update skill
-const FORMATS: [u64; 1] = [4];
+const FORMATS: [u64; 2] = [4, 5];
 /// How long a file outlives the last manifest naming it, for a client still holding an older manifest
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -94,25 +94,12 @@ fn main() {
         .collect();
     let classifications = Classifications::new(records.clone());
 
-    let models = models(&catalog);
-    let incomplete: BTreeMap<&String, Vec<String>> = models
-        .par_iter()
-        .map(|(id, model)| (id, completeness::messages(model)))
-        .filter(|(_, messages)| !messages.is_empty())
-        .collect();
+    let all = models(&catalog);
     let stored: BTreeSet<String> = stored_paths(&output)
         .into_iter()
         .filter(|path| path != "retired.json")
         .collect();
 
-    let rows: Vec<Row> = models
-        .iter()
-        .map(|(id, vehicle)| Row {
-            id,
-            vehicle,
-            incomplete: incomplete.contains_key(id),
-        })
-        .collect();
     let mut index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
     // The snapshots spell ids and slugs as schema 1.x does
     if dashes(&schema_version) {
@@ -166,29 +153,49 @@ fn main() {
         &kit["component_groups"],
         &components.iter().map(String::as_str).collect::<Vec<_>>()
     ));
-    let comparisons = comparison::with_rider_heights(
-        rows.par_iter()
-            .map(|row| {
-                let family = row.vehicle["primary_activity"]
-                    .as_str()
-                    .and_then(|activity| families.get(&dashed(activity)));
-                (
-                    family.map(|family| family.to_string()),
-                    comparison::call(row.vehicle, &classifications),
-                    comparison::rider_height_sizes(row.vehicle),
-                )
-            })
-            .collect(),
-    );
-    let index_rows: Vec<Value> = rows
-        .par_iter()
-        .map(|row| row.to_json(&markets, &classifications))
-        .collect();
     let variants = market_variants(&catalog);
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
     let referenced: BTreeSet<String> = FORMATS
         .iter()
         .flat_map(|&format| {
+            let ids = published_ids(format, &markets, &all);
+            let models = published_models(format, &all, &ids);
+            let incomplete: BTreeMap<&String, Vec<String>> = models
+                .par_iter()
+                .map(|(id, model)| (id, completeness::messages(model)))
+                .filter(|(_, messages)| !messages.is_empty())
+                .collect();
+            let rows: Vec<Row> = models
+                .iter()
+                .map(|(id, vehicle)| Row {
+                    id,
+                    vehicle,
+                    incomplete: incomplete.contains_key(id),
+                })
+                .collect();
+            let comparisons = comparison::with_rider_heights(
+                rows.par_iter()
+                    .map(|row| {
+                        let family = row.vehicle["primary_activity"]
+                            .as_str()
+                            .and_then(|activity| families.get(&dashed(activity)));
+                        (
+                            family.map(|family| family.to_string()),
+                            comparison::call(row.vehicle, &classifications),
+                            comparison::rider_height_sizes(row.vehicle),
+                        )
+                    })
+                    .collect(),
+            );
+            let index_rows: Vec<Value> = rows
+                .par_iter()
+                .map(|row| row.to_json(&markets, &classifications))
+                .collect();
+            let id = |key: &String| ids.get(key).unwrap_or(key).clone();
+            let variants: BTreeMap<String, Vec<String>> = variants
+                .iter()
+                .map(|(base, keys)| (id(base), keys.iter().map(&id).collect()))
+                .collect();
             let blocks = write_blocks(&output, format, &models, &incomplete);
             let (index_models, listed_comparisons) =
                 listed(&index_rows, &comparisons, &variants);
@@ -258,8 +265,8 @@ fn main() {
     );
     println!(
         "{} models in {} blocks, in formats {FORMATS:?}, to {}",
-        models.len(),
-        blocks(&models).len(),
+        all.len(),
+        blocks(&all).len(),
         output.display()
     );
 }
@@ -299,12 +306,12 @@ fn market_variants(catalog: &Catalog) -> BTreeMap<String, Vec<String>> {
     catalog
         .models()
         .filter(|(path, data)| {
-            path.starts_with("vehicle_models/") && !ruby::blank(data.get("markets"))
+            Catalog::kind(path) == "vehicle_model" && !ruby::blank(data.get("markets"))
         })
         .filter_map(|(path, data)| {
             Some((
                 data.get("base")?.as_str()?.to_string(),
-                Catalog::expected_id(path),
+                Catalog::citation_key(path),
             ))
         })
         .fold(BTreeMap::new(), |mut variants, (base, id)| {
@@ -342,18 +349,65 @@ fn listed<'a>(
         .unzip()
 }
 
-/// Every vehicle model by id, an overlay or a market variant resolved over its base
+/// Every vehicle model by citation key, an overlay or a market variant resolved over its base
 fn models(catalog: &Catalog) -> BTreeMap<String, Value> {
     catalog
         .models()
         .collect::<Vec<_>>()
         .into_par_iter()
-        .filter(|(path, _)| path.starts_with("vehicle_models/"))
+        .filter(|(path, _)| Catalog::kind(path) == "vehicle_model")
         .map(|(path, data)| {
             let resolved = catalog
                 .resolve(data)
                 .unwrap_or_else(|error| panic!("{path}: {error}"));
-            (Catalog::expected_id(path), resolved)
+            (Catalog::citation_key(path), resolved)
+        })
+        .collect()
+}
+
+/// The id a format publishes each model by, by its citation key: from format 5 the citation key, its file's id for its
+/// file's own model, and before it, as ids were before every market's model of a name and year shared one, its photo
+/// stem
+pub fn published_ids(
+    format: u64,
+    markets: &Markets,
+    models: &BTreeMap<String, Value>,
+) -> BTreeMap<String, String> {
+    models
+        .iter()
+        .map(|(key, model)| {
+            let (id, market) = match key.split_once('@') {
+                Some((id, market)) => (id, Some(market.to_string())),
+                None => (
+                    key.as_str(),
+                    markets.foreign(model, key.split('/').nth(1).unwrap_or_default()),
+                ),
+            };
+            let published = if format < 5 {
+                Catalog::photo_stem(id, market.as_deref(), suffix_separator(model))
+            } else {
+                key.clone()
+            };
+            (key.clone(), published)
+        })
+        .collect()
+}
+
+/// The models by their ids in a format. Before format 5 each also names its own, where from 5 a market's model names
+/// its file's
+pub fn published_models(
+    format: u64,
+    models: &BTreeMap<String, Value>,
+    ids: &BTreeMap<String, String>,
+) -> BTreeMap<String, Value> {
+    models
+        .iter()
+        .map(|(key, model)| {
+            let mut model = model.clone();
+            if format < 5 {
+                model["id"] = json!(ids[key]);
+            }
+            (ids[key].clone(), model)
         })
         .collect()
 }
@@ -621,9 +675,55 @@ mod tests {
                 ),
                 (
                     "m/acme/2025/two".to_string(),
-                    vec!["m/acme/2025/two_gb".to_string()]
+                    vec!["m/acme/2025/two@GB".to_string()]
                 ),
             ])
+        );
+    }
+
+    #[test]
+    fn format_5_keys_a_markets_model_by_its_citation_key_and_format_4_by_its_photo_stem() {
+        let catalog = Catalog::new(BTreeMap::from([
+            (
+                "vehicle_models/acme/2025/one.json".to_string(),
+                json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"],
+                    "market_variants": {"GB": {"markets": ["GB"]}}}),
+            ),
+            (
+                "vehicle_models/woom/2026/go-1.json".to_string(),
+                json!({"schema_version": "2.0.0", "id": "m/woom/2026/go-1", "markets": ["US"]}),
+            ),
+        ]));
+        let all = models(&catalog);
+        let markets = Markets::load(&json!({"$defs": {"market": {"enum": ["US", "EU", "GB"]}}}));
+        let published = |format: u64| {
+            let ids = published_ids(format, &markets, &all);
+            published_models(format, &all, &ids)
+                .into_iter()
+                .map(|(id, model)| (id, model["id"].clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            published(4),
+            [
+                ("m/acme/2025/one".to_string(), json!("m/acme/2025/one")),
+                (
+                    "m/acme/2025/one-gb".to_string(),
+                    json!("m/acme/2025/one-gb")
+                ),
+                (
+                    "m/woom/2026/go-1-us".to_string(),
+                    json!("m/woom/2026/go-1-us")
+                ),
+            ]
+        );
+        assert_eq!(
+            published(5),
+            [
+                ("m/acme/2025/one".to_string(), json!("m/acme/2025/one")),
+                ("m/acme/2025/one@GB".to_string(), json!("m/acme/2025/one")),
+                ("m/woom/2026/go-1".to_string(), json!("m/woom/2026/go-1")),
+            ]
         );
     }
 

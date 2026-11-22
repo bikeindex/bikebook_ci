@@ -60,14 +60,26 @@ impl Markets {
                 }
             });
         if pages.is_empty() {
-            // keyed by schema 1.x's slugs
-            Value::from(vec![
-                self.lookup("primary_markets", &manufacturer.replace('-', "_"))
-                    .unwrap_or("US"),
-            ])
+            Value::from(vec![self.home(manufacturer)])
         } else {
             Value::from(pages)
         }
+    }
+
+    /// keyed by schema 1.x's slugs
+    fn home(&self, manufacturer: &str) -> &str {
+        self.lookup("primary_markets", &manufacturer.replace('-', "_"))
+            .unwrap_or("US")
+    }
+
+    /// The market a model is the model of, by the first it states, when that's not its maker's home market's
+    pub fn foreign(&self, vehicle: &Value, manufacturer: &str) -> Option<String> {
+        let stated = array(vehicle.get("markets"));
+        let home = Value::from(self.home(manufacturer));
+        if stated.contains(&&home) {
+            return None;
+        }
+        Some(stated.first()?.as_str()?.to_string())
     }
 
     /// An unpriced record's store is its page's

@@ -170,7 +170,7 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
     );
 }
 
-/// What joins a model's id to a suffix: a market variant's market, a colorway photo's paint
+/// What joins a model's id to a suffix on its photos: a market's model's market, a colorway's paint
 pub fn suffix_separator(data: &Value) -> char {
     if dashes(data["schema_version"].as_str().unwrap_or_default()) {
         '-'
@@ -181,7 +181,7 @@ pub fn suffix_separator(data: &Value) -> char {
 
 pub struct Catalog {
     pub files: BTreeMap<String, Value>,
-    /// Each file's `market_variants`, as the overlays over it they stand for, by the path their id names
+    /// Each file's `market_variants`, as the overlays over it they stand for, by their citation key: `<id>@<market>`
     pub variants: BTreeMap<String, Value>,
 }
 
@@ -195,39 +195,42 @@ impl Catalog {
             .values()
             .flat_map(|data| {
                 let id = data.get("id").and_then(Value::as_str).unwrap_or_default();
-                let separator = suffix_separator(data);
                 data.get("market_variants")
                     .and_then(Value::as_object)
                     .into_iter()
                     .flatten()
                     .filter_map(move |(market, variant)| {
-                        let variant_id = format!("{id}{separator}{}", market.to_lowercase());
                         let mut overlay = Map::new();
                         overlay.insert("schema_version".into(), data["schema_version"].clone());
-                        overlay.insert("id".into(), variant_id.clone().into());
+                        overlay.insert("id".into(), id.into());
                         overlay.insert("base".into(), id.into());
                         overlay.extend(variant.as_object()?.clone());
-                        Some((Catalog::path(&variant_id)?, Value::Object(overlay)))
+                        Some((format!("{id}@{market}"), Value::Object(overlay)))
                     })
             })
             .collect();
         Catalog { files, variants }
     }
 
-    /// The files, then the market variants
+    /// The files by path, then the market variants by citation key
     pub fn models(&self) -> impl Iterator<Item = (&String, &Value)> {
         self.files.iter().chain(&self.variants)
     }
 
+    /// Of a file's path or a market variant's citation key
     pub fn kind(path: &str) -> &'static str {
         match path.split('/').next() {
-            Some("vehicle_models") => "vehicle_model",
-            Some("components") => "component",
+            Some("vehicle_models" | "m") => "vehicle_model",
+            Some("components" | "c") => "component",
             _ => "e_vehicle_classification",
         }
     }
 
+    /// A market variant's is its base's
     pub fn expected_id(path: &str) -> String {
+        if let Some((id, _)) = path.split_once('@') {
+            return id.to_string();
+        }
         let (directory, rest) = path.split_once('/').unwrap();
         let prefix = match directory {
             "vehicle_models" => "m/",
@@ -248,13 +251,42 @@ impl Catalog {
         Some(format!("{directory}/{rest}.json"))
     }
 
+    /// The key `models` gives a file's path or a market variant's citation key: the file's id, or the citation key
+    pub fn citation_key(path: &str) -> String {
+        if path.contains('@') {
+            path.to_string()
+        } else {
+            Catalog::expected_id(path)
+        }
+    }
+
+    /// What a market's model's photos are keyed by, as its id was before every market's model of a name and year
+    /// shared one: the id suffixed with the market, unless it already ends in it
+    pub fn photo_stem(id: &str, market: Option<&str>, separator: char) -> String {
+        match market.map(|market| format!("{separator}{}", market.to_lowercase())) {
+            Some(suffix) if !id.ends_with(&suffix) => format!("{id}{suffix}"),
+            _ => id.to_string(),
+        }
+    }
+
+    /// By id, a market variant by its citation key or, as ids named one before markets shared them, its photo stem
     pub fn by_id(&self, id: &str) -> Option<&Value> {
-        let path = Catalog::path(id)?;
-        self.files.get(&path).or_else(|| self.variants.get(&path))
+        Catalog::path(id)
+            .and_then(|path| self.files.get(&path))
+            .or_else(|| self.variants.get(id))
+            .or_else(|| {
+                self.variants
+                    .iter()
+                    .find(|(key, data)| {
+                        let (base, market) = key.split_once('@').unwrap();
+                        Catalog::photo_stem(base, Some(market), suffix_separator(data)) == id
+                    })
+                    .map(|(_, data)| data)
+            })
     }
 
     /// An overlay applied over its base; any other file as it is. Neither keeps the market variants, each a model of
-    /// its own
+    /// its own. An overlay that can't carry a drawing, a bike not suspended at both ends, drops its base's
     pub fn resolve(&self, data: &Value) -> Result<Value, String> {
         let Some(base_id) = data.get("base").and_then(Value::as_str) else {
             let mut resolved = data.clone();
@@ -274,6 +306,15 @@ impl Catalog {
                 .filter(|(key, _)| key != "base")
                 .collect(),
         )?;
+        let suspended = ["front", "rear"].iter().all(|end| {
+            merged
+                .get("suspension")
+                .and_then(|suspension| suspension.get(end))
+                .is_some()
+        });
+        if merged.get("type").and_then(Value::as_str) == Some("bike") && !suspended {
+            merged.shift_remove("geometry_photo");
+        }
         let mut resolved = Map::new();
         for key in ["schema_version", "id"] {
             if let Some(value) = data.get(key) {
@@ -728,17 +769,23 @@ mod tests {
     }
 
     #[test]
-    fn a_market_variant_resolves_as_an_overlay_and_its_base_without_it() {
+    fn a_market_variant_shares_its_bases_id_and_resolves_as_an_overlay_over_it() {
         let base = json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
             "market_variants": {"US": {"markets": ["US"], "model": "One US"}}});
         let catalog = Catalog::new(BTreeMap::from([(
             "vehicle_models/acme/2025/one.json".to_string(),
             base.clone(),
         )]));
-        let variant = catalog.by_id("m/acme/2025/one_us").unwrap();
+        assert_eq!(
+            catalog.variants.keys().collect::<Vec<_>>(),
+            ["m/acme/2025/one@US"]
+        );
+        let variant = catalog.by_id("m/acme/2025/one@US").unwrap();
+        assert_eq!(catalog.by_id("m/acme/2025/one_us"), Some(variant));
+        assert_eq!(catalog.by_id("m/acme/2025/one"), Some(&base));
         assert_eq!(
             catalog.resolve(variant).unwrap(),
-            json!({"schema_version": "1.1.0", "id": "m/acme/2025/one_us", "markets": ["US"], "model": "One US"})
+            json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["US"], "model": "One US"})
         );
         assert!(
             catalog
@@ -750,17 +797,40 @@ mod tests {
     }
 
     #[test]
-    fn a_2_0_0_market_variant_is_suffixed_with_a_dash() {
-        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one-two", "markets": ["EU"],
-            "market_variants": {"US": {"markets": ["US"]}}});
+    fn a_photo_stem_suffixes_the_market_unless_the_id_ends_in_it() {
+        assert_eq!(
+            Catalog::photo_stem("m/acme/2025/one-two", Some("GB"), '-'),
+            "m/acme/2025/one-two-gb"
+        );
+        assert_eq!(
+            Catalog::photo_stem("m/acme/2025/one-us", Some("US"), '-'),
+            "m/acme/2025/one-us"
+        );
+        assert_eq!(
+            Catalog::photo_stem("m/acme/2025/one", None, '-'),
+            "m/acme/2025/one"
+        );
+    }
+
+    #[test]
+    fn a_market_variant_that_cant_carry_a_drawing_drops_its_bases() {
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "type": "bike",
+            "suspension": {"front": {"travel": 100}, "rear": {"travel": 90}},
+            "geometry_photo": "https://bikebook.bikeindex.org/acme/2025/one-geometry.png",
+            "market_variants": {"GB": {"suspension": false}, "CA": {"markets": ["CA"]}}});
         let catalog = Catalog::new(BTreeMap::from([(
-            "vehicle_models/acme/2025/one-two.json".to_string(),
+            "vehicle_models/acme/2025/one.json".to_string(),
             base,
         )]));
-        assert_eq!(
-            catalog.variants.keys().collect::<Vec<_>>(),
-            ["vehicle_models/acme/2025/one-two-us.json"]
-        );
+        let geometry = |key: &str| {
+            catalog
+                .resolve(&catalog.variants[key])
+                .unwrap()
+                .get("geometry_photo")
+                .cloned()
+        };
+        assert_eq!(geometry("m/acme/2025/one@GB"), None);
+        assert!(geometry("m/acme/2025/one@CA").is_some());
     }
 
     #[test]
