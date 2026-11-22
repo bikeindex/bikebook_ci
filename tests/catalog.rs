@@ -51,8 +51,8 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
             }
             _ => {}
         }
-        if data.get("geometry_photo").is_some() {
-            problems.push("an overlay takes its base's geometry_photo".to_string());
+        if data.get("geometry_photo").is_some_and(Value::is_null) {
+            problems.push("an overlay without its own geometry_photo takes its base's".to_string());
         }
     }
     let resolved = match catalog.resolve(data) {
@@ -102,7 +102,9 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
         problems.push(format!("stock_photo isn't keyed by the id: {photo}"));
     }
     if let Some(photo) = resolved.get("geometry_photo").and_then(Value::as_str)
-        && photo_stem(photo) != format!("{}{separator}geometry", owners.last().unwrap())
+        && !owners
+            .iter()
+            .any(|owner| photo_stem(photo) == format!("{owner}{separator}geometry"))
     {
         problems.push(format!("geometry_photo isn't keyed by the id: {photo}"));
     }
@@ -189,5 +191,39 @@ fn a_market_variant_is_checked_as_a_model_and_its_id_found() {
         [format!(
             "vehicle_models/porsche/2025/cross{separator}ca.json: its motor c/tq/2025/hpr60{separator}ca isn't in this repo"
         )]
+    );
+}
+
+#[test]
+fn a_market_variant_may_key_its_own_geometry_photo_but_not_null_it() {
+    let path = "vehicle_models/porsche/2025/cross.json";
+    let mut files = parsed(&[path]);
+    let separator = suffix_separator(&files[path]);
+    let drawing = |id: &str| format!("{PHOTO_URL}porsche/2025/{id}{separator}geometry.png");
+    files.get_mut(path).unwrap()["market_variants"] = json!({
+        "CA": {"markets": ["CA"], "geometry_photo": drawing(&format!("cross{separator}ca"))},
+        "DE": {"markets": ["DE"], "geometry_photo": null},
+        "FR": {"markets": ["FR"], "geometry_photo": drawing("other")},
+    });
+    let variant =
+        |market: &str| format!("vehicle_models/porsche/2025/cross{separator}{market}.json");
+    let mut problems: Vec<String> = catalog_problems(&Catalog::new(files))
+        .into_iter()
+        .filter(|problem| problem.contains("geometry_photo"))
+        .collect();
+    problems.sort();
+    assert_eq!(
+        problems,
+        [
+            format!(
+                "{}: an overlay without its own geometry_photo takes its base's",
+                variant("de")
+            ),
+            format!(
+                "{}: geometry_photo isn't keyed by the id: {}",
+                variant("fr"),
+                drawing("other")
+            ),
+        ]
     );
 }
