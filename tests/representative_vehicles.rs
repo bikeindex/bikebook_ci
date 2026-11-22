@@ -1,14 +1,5 @@
 use bikebook_data_checks::*;
 
-fn representative_vehicle_ids() -> Vec<String> {
-    let mut reader = csv::Reader::from_path(root().join("representative_vehicles.csv")).unwrap();
-    assert_eq!(reader.headers().unwrap(), vec!["vehicle_id", "notes"]);
-    reader
-        .records()
-        .map(|record| record.unwrap()[0].to_string())
-        .collect()
-}
-
 /// `bin/check_schema_change` reads each id as `m/<path>`, a file in vehicle_models
 fn missing(ids: &[String]) -> Vec<String> {
     ids.iter()

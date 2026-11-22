@@ -52,6 +52,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: aws s3 sync --only-show-errors "$DESTINATION" "$CATALOG"
       - run: target/release/generate_catalog "$CATALOG"
+      # After the catalog, whose vocabulary names its values. It keeps the published viewer unless a schema changed, and
+      # stops the publish on one Bike Index's viewer can't read
+      - name: Generate the schema viewer
+        run: target/release/generate_catalog "$CATALOG" --schema-viewer
       # A published version never changes
       - name: Upload the schemas
         env:
