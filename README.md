@@ -45,7 +45,7 @@ Bike Book's own publish workflow runs on each push to its `main`, separately fro
 3. It writes the schema viewer, in a step of its own, if a schema changed.
 4. It uploads each of Bike Book's schemas to the stock photos bucket, at the URL its `$id` names, unless that version is already there, since a published version never changes.
 5. It uploads the new files, then the manifests that name them, then deletes the expired files. Nothing is uploaded unless every step before it succeeded.
-6. It purges the manifests from Cloudflare's cache. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
+6. It purges the manifests from Cloudflare's cache, and fails if a minute later the edge still serves an old one. The files are gzipped, and Cloudflare caches them. A file named by its content is cached for good, and a manifest for an hour unless a publish purges it. Since a file outlives the last manifest naming it by a day, a stale manifest never names a missing file, even if the purge fails.
 
 **The R2 keys are only ever available here.** A workflow that Bike Book calls runs as Bike Book's run, with Bike Book's secrets. So the keys live in this repository's `catalog` environment, which only `main` can use, and only the download and upload steps get them.
 
@@ -65,5 +65,5 @@ Setup:
   (http.host eq "bikebook-catalog.bikeindex.org" and any(http.request.headers["accept-encoding"][*] contains "gzip"))
   ```
 
-  A request that doesn't accept gzip gets the file decoded, and if it filled the cache, the decoded copy would be what every browser gets from there on: `no-transform` stops Cloudflare compressing it. So only a request that accepts gzip can fill it, and any other goes to R2.
+  A request that doesn't accept gzip gets the file decoded, and if it filled the cache, the decoded copy would be what every browser gets from there on: `no-transform` stops Cloudflare compressing it. So only a request that accepts gzip can fill it, and any other goes to R2. A purge by URL is matched against this rule too, and as it accepts no gzip it misses the copy every browser gets, so the publish purges the manifests by prefix.
 - **In Bike Book:** a secret `CATALOG_PUBLISH_TOKEN`, from a fine-grained token for this repository only, with "Actions: Read and write" and nothing else.
