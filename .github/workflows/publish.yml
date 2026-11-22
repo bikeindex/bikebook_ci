@@ -88,21 +88,23 @@ jobs:
           done
           upload cp "$CATALOG/retired.json" "$DESTINATION/retired.json" --cache-control no-store
           aws s3 sync --only-show-errors --delete "$CATALOG" "$DESTINATION" --exclude retired.json
-      # By prefix, since a purge by URL misses: see the Cache Rule in the README. The edge sends a gzip manifest as stored
+      # A purge by URL misses: see the Cache Rule in the README
       - name: Purge the manifests from Cloudflare's cache
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_TOKEN }}
           ZONE: ${{ vars.CLOUDFLARE_ZONE_ID }}
-          PREFIX: bikebook-catalog.bikeindex.org/catalog/manifest
+          CATALOG_URL: bikebook-catalog.bikeindex.org/catalog/
         run: |
           curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/zones/$ZONE/purge_cache" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            --json "$(jq -nc '{prefixes: [env.PREFIX]}')"
-          for manifest in "$CATALOG"/manifest*.json; do
-            for attempt in {1..12}; do
-              curl -s -H "Accept-Encoding: gzip" "https://$PREFIX${manifest##*/manifest}" | cmp -s - "$manifest" && continue 2
-              sleep 5
+            --json "{\"prefixes\": [\"${CATALOG_URL}manifest\"]}"
+          cd "$CATALOG"
+          for attempt in {1..12}; do
+            sleep 5
+            for manifest in manifest*.json; do
+              curl -s -H "Accept-Encoding: gzip" "https://$CATALOG_URL$manifest" | cmp -s - "$manifest" || continue 2
             done
-            echo "::error::Cloudflare still serves an old ${manifest##*/} a minute after the purge"
-            exit 1
+            exit 0
           done
+          echo "::error::Cloudflare still serves an old $manifest a minute after the purge"
+          exit 1
