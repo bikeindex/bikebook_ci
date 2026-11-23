@@ -93,16 +93,41 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
         problems.push(format!("no years record for its model year {first_year}"));
     }
 
-    // a photo is stored under its model's id, a colorway's under the id and its paint; an overlay's can be its base's
-    let owners: Vec<&str> = std::iter::once(id).chain(base).map(unprefixed).collect();
+    // a photo is stored under its model's id, or an overlay's base's, either suffixed with its market or one it or its
+    // base is sold in; a colorway's under that and its paint
     let separator = suffix_separator(data);
+    let sold = [Some(&resolved), base.and_then(|base| catalog.by_id(base))]
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model.get("markets")?.as_array())
+        .flatten()
+        .filter_map(|market| Some(market.as_str()?.to_string()));
+    let markets: Vec<String> = path
+        .split_once('@')
+        .map(|(_, market)| market.to_string())
+        .into_iter()
+        .chain(sold)
+        .collect();
+    let owners: Vec<String> = std::iter::once(id)
+        .chain(base)
+        .map(unprefixed)
+        .flat_map(|owner| {
+            std::iter::once(None)
+                .chain(markets.iter().map(Some))
+                .map(move |market| {
+                    Catalog::photo_stem(owner, market.map(String::as_str), separator)
+                })
+        })
+        .collect();
     if let Some(photo) = resolved.get("stock_photo").and_then(Value::as_str)
-        && !owners.contains(&photo_stem(photo))
+        && !owners.iter().any(|owner| owner == photo_stem(photo))
     {
         problems.push(format!("stock_photo isn't keyed by the id: {photo}"));
     }
     if let Some(photo) = resolved.get("geometry_photo").and_then(Value::as_str)
-        && photo_stem(photo) != format!("{}{separator}geometry", owners.last().unwrap())
+        && !owners
+            .iter()
+            .any(|owner| photo_stem(photo) == format!("{owner}{separator}geometry"))
     {
         problems.push(format!("geometry_photo isn't keyed by the id: {photo}"));
     }
@@ -181,13 +206,19 @@ fn a_market_variant_is_checked_as_a_model_and_its_id_found() {
     files.get_mut(motor_path).unwrap()["market_variants"] = json!({"US": {"markets": ["US"]}});
     let model = files.get_mut(path).unwrap();
     model["motors"] = json!([{"id": format!("c/tq/2025/hpr60{separator}us")}]);
-    model["market_variants"] = json!({"CA": {"markets": ["CA"],
-        "motors": {"0": {"id": format!("c/tq/2025/hpr60{separator}ca")}}}});
+    model["market_variants"] = json!({
+        "GB": {"markets": ["GB"], "motors": {"0": {"id": "c/tq/2025/hpr60@US"}},
+            "stock_photo": format!("https://bikebook.bikeindex.org/porsche/2025/cross{separator}gb.webp")},
+        "CA": {"markets": ["CA"], "motors": {"0": {"id": "c/tq/2025/hpr60@CA"}},
+            "stock_photo": format!("https://bikebook.bikeindex.org/porsche/2025/cross{separator}fr.webp")}});
     let problems = catalog_problems(&Catalog::new(files));
     assert_eq!(
         problems,
-        [format!(
-            "vehicle_models/porsche/2025/cross{separator}ca.json: its motor c/tq/2025/hpr60{separator}ca isn't in this repo"
-        )]
+        [
+            "m/porsche/2025/cross@CA: its motor c/tq/2025/hpr60@CA isn't in this repo".to_string(),
+            format!(
+                "m/porsche/2025/cross@CA: stock_photo isn't keyed by the id: https://bikebook.bikeindex.org/porsche/2025/cross{separator}fr.webp"
+            )
+        ]
     );
 }

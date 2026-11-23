@@ -8,16 +8,16 @@ changed=$(git diff --name-only --no-renames "$base" "$head")
 grep -q '^schemas/' <<<"$changed" || exit 0
 
 # A representative vehicle's linked components, and their bases, move to the new shape with it. A market variant's id
-# names no file of its own, but its base's
+# or citation key names no file of its own, but its base's
 linked() {
   [ -z "$2" ] || { git grep -h -o -E "\"$1\": \"c/[^\"]+\"" "$head" -- $2 || true; } |
     sed -E 's|.*"c/(.*)"|components/\1.json|' | sort -u |
     while read -r path; do
-      git cat-file -e "$head:$path" 2>/dev/null && echo "$path" || sed -E 's/[-_][a-z]{2}\.json$/.json/' <<<"$path"
+      git cat-file -e "$head:$path" 2>/dev/null && echo "$path" || sed -E 's/([-_][a-z]{2}|@[A-Z]+)\.json$/.json/' <<<"$path"
     done | sort -u
 }
 # The base's list, so a branch can't add to its own
-vehicles=$(git show "$base:representative_vehicles.csv" | awk -F, 'NR > 1 { print "vehicle_models/" substr($1, 3) ".json" }')
+vehicles=$(git show "$base:representative_vehicles.csv" | awk -F, 'NR > 1 { sub(/@.*/, "", $1); print "vehicle_models/" substr($1, 3) ".json" }' | sort -u)
 components=$(linked id "$vehicles")
 bases=$(linked base "$components")
 representative=$(printf '%s\n' $vehicles $components $bases)

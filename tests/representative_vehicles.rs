@@ -1,10 +1,11 @@
 use bikebook_data_checks::*;
 
-/// `bin/check_schema_change` reads each id as `m/<path>`, a file in vehicle_models
+/// `bin/check_schema_change` reads each id as `m/<path>`, a file in vehicle_models, and a market's model,
+/// `<id>@<market>`, as its id's
 fn missing(ids: &[String]) -> Vec<String> {
     ids.iter()
         .filter(|id| {
-            !Catalog::path(id).is_some_and(|path| {
+            !Catalog::path(id.split('@').next().unwrap()).is_some_and(|path| {
                 path.starts_with("vehicle_models/") && root().join(path).is_file()
             })
         })
@@ -23,6 +24,7 @@ fn every_representative_vehicle_is_in_the_catalog() {
 fn a_representative_vehicle_missing_from_the_catalog_is_reported() {
     let ids = [
         "m/porsche/2025/cross",
+        "m/porsche/2025/cross@GB",
         "m/specialized/2025/haul",
         "c/shimano/deore",
     ]
