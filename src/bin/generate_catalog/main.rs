@@ -22,12 +22,22 @@ use std::time::{Duration, SystemTime};
 
 /// The published files' layouts, oldest first, each with its own manifest. A new one is published beside the one before
 /// it until every reader has moved to it: see the format-update skill
-const FORMATS: [u64; 1] = [5];
+const FORMATS: [u64; 2] = [5, 6];
 /// How long a file outlives the last manifest naming it, for a client still holding an older manifest
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn snapshot(json: &str) -> Value {
     serde_json::from_str(json).unwrap()
+}
+
+fn with(object: &Value, added: impl IntoIterator<Item = (String, Value)>) -> Value {
+    object
+        .as_object()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .chain(added)
+        .collect()
 }
 
 fn main() {
@@ -133,94 +143,89 @@ fn main() {
         &kit["component_groups"],
         &components.iter().map(String::as_str).collect::<Vec<_>>()
     ));
+    let kit = json!({"kit": kit});
     let variants = market_variants(&catalog);
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
+    let incomplete: BTreeMap<&String, Vec<String>> = all
+        .par_iter()
+        .map(|(id, model)| (id, completeness::messages(model)))
+        .filter(|(_, messages)| !messages.is_empty())
+        .collect();
+    let rows: Vec<Row> = all
+        .iter()
+        .map(|(id, vehicle)| Row {
+            id,
+            vehicle,
+            incomplete: incomplete.contains_key(id),
+        })
+        .collect();
+    let comparisons = comparison::with_rider_heights(
+        rows.par_iter()
+            .map(|row| {
+                let family = row.vehicle["primary_activity"]
+                    .as_str()
+                    .and_then(|activity| families.get(activity));
+                (
+                    family.map(|family| family.to_string()),
+                    comparison::call(row.vehicle, &classifications),
+                    comparison::rider_height_sizes(row.vehicle),
+                )
+            })
+            .collect(),
+    );
+    let index_rows: Vec<Value> = rows
+        .par_iter()
+        .map(|row| row.to_json(&markets, &classifications))
+        .collect();
+    let (index_models, listed_comparisons) = listed(&index_rows, &comparisons, &variants);
+    let index = json!({
+        "manufacturers": manufacturers(&rows),
+        "primary_activities": activities.iter().map(|activity| json!({"slug": activity.slug, "name": activity.name, "family": activity.family})).collect::<Vec<_>>(),
+        "vehicle_types": names["type"].as_object().unwrap().iter().map(|(slug, name)| json!({"slug": slug, "name": name})).collect::<Vec<_>>(),
+        "filter_options": index_snapshot["filter_options"],
+        "stock_photos": index::PHOTO_URL,
+        "models": index_models,
+    });
+    let vocabulary = json!({
+        "names": names,
+        "e_vehicle_classifications": records,
+        "currencies": vocabulary_snapshot["currencies"],
+        "wheel_sizes": bike_data.wheel_sizes(),
+    });
+    let comparison_fields: Map<String, Value> = comparison::FIELDS
+        .iter()
+        .map(|field| {
+            (
+                field.to_string(),
+                listed_comparisons
+                    .iter()
+                    .map(|each| each.get(*field).cloned().unwrap_or(Value::Null))
+                    .collect(),
+            )
+        })
+        .collect();
+    let comparison = json!({"fields": comparison_fields});
+    let block_bodies = block_bodies(&all, &incomplete);
     let referenced: BTreeSet<String> = FORMATS
         .iter()
         .flat_map(|&format| {
-            let incomplete: BTreeMap<&String, Vec<String>> = all
-                .par_iter()
-                .map(|(id, model)| (id, completeness::messages(model)))
-                .filter(|(_, messages)| !messages.is_empty())
-                .collect();
-            let rows: Vec<Row> = all
-                .iter()
-                .map(|(id, vehicle)| Row {
-                    id,
-                    vehicle,
-                    incomplete: incomplete.contains_key(id),
+            let blocks = write_blocks(&output, format, &block_bodies);
+            let written: Vec<(&str, String)> = files(format, &index, &vocabulary, &kit, &comparison)
+                .into_iter()
+                .map(|(name, parts)| {
+                    let fields = parts.into_iter().flat_map(|part| part.as_object().unwrap().clone());
+                    (name, write_hashed(&output, name, &with(&json!({"format": format}), fields)))
                 })
+                .chain(schema_viewer::published(&output, format).map(|path| ("schema_viewer", path)))
                 .collect();
-            let comparisons = comparison::with_rider_heights(
-                rows.par_iter()
-                    .map(|row| {
-                        let family = row.vehicle["primary_activity"]
-                            .as_str()
-                            .and_then(|activity| families.get(activity));
-                        (
-                            family.map(|family| family.to_string()),
-                            comparison::call(row.vehicle, &classifications),
-                            comparison::rider_height_sizes(row.vehicle),
-                        )
-                    })
-                    .collect(),
-            );
-            let index_rows: Vec<Value> = rows
-                .par_iter()
-                .map(|row| row.to_json(&markets, &classifications))
-                .collect();
-            let blocks = write_blocks(&output, format, &all, &incomplete);
-            let (index_models, listed_comparisons) =
-                listed(&index_rows, &comparisons, &variants);
-            let index = json!({
-                "format": format,
-                "manufacturers": manufacturers(&rows),
-                "primary_activities": activities.iter().map(|activity| json!({"slug": activity.slug, "name": activity.name, "family": activity.family})).collect::<Vec<_>>(),
-                "vehicle_types": names["type"].as_object().unwrap().iter().map(|(slug, name)| json!({"slug": slug, "name": name})).collect::<Vec<_>>(),
-                "filter_options": index_snapshot["filter_options"],
-                "stock_photos": index::PHOTO_URL,
-                "models": index_models,
-            });
-            let vocabulary = json!({
-                "format": format,
-                "names": names,
-                "e_vehicle_classifications": records,
-                "currencies": vocabulary_snapshot["currencies"],
-                "wheel_sizes": bike_data.wheel_sizes(),
-            });
-            let comparison_fields: Map<String, Value> = comparison::FIELDS
-                .iter()
-                .map(|field| {
-                    (
-                        field.to_string(),
-                        listed_comparisons
-                            .iter()
-                            .map(|each| each.get(*field).cloned().unwrap_or(Value::Null))
-                            .collect(),
-                    )
-                })
-                .collect();
-            let files: Vec<(&str, String)> = [
-                ("index", index),
-                ("vocabulary", vocabulary),
-                ("kit", json!({"format": format, "kit": kit})),
-                (
-                    "comparison",
-                    json!({"format": format, "fields": comparison_fields}),
-                ),
-            ]
-            .into_iter()
-            .map(|(name, body)| (name, write_hashed(&output, name, &body)))
-            .chain(schema_viewer::published(&output, format).map(|path| ("schema_viewer", path)))
-            .collect();
             let mut manifest = json!({"format": format, "published_at": published_at, "schema_version": schema_version});
-            files
+            written
                 .iter()
                 .for_each(|(name, path)| manifest[name] = json!(path));
             manifest["blocks"] = json!(blocks);
             let manifest_path = format!("manifest.{format}.json");
             write(&output, &manifest_path, &gzip(&manifest.to_string()));
-            files
+            written
                 .into_iter()
                 .map(|(_, path)| path)
                 .chain(blocks.into_values())
@@ -244,13 +249,33 @@ fn main() {
     );
 }
 
-/// Each model's blocks, by `<maker>/<first year>`, named by their content
-fn write_blocks(
-    output: &Path,
+/// The files a manifest names but its blocks and schema viewer, each as the objects whose fields it holds. From format
+/// 6 the vocabulary holds the kit
+fn files<'a>(
     format: u64,
+    index: &'a Value,
+    vocabulary: &'a Value,
+    kit: &'a Value,
+    comparison: &'a Value,
+) -> Vec<(&'static str, Vec<&'a Value>)> {
+    let vocabulary = if format < 6 {
+        vec![("vocabulary", vec![vocabulary]), ("kit", vec![kit])]
+    } else {
+        vec![("vocabulary", vec![vocabulary, kit])]
+    };
+    [("index", vec![index])]
+        .into_iter()
+        .chain(vocabulary)
+        .chain([("comparison", vec![comparison])])
+        .collect()
+}
+
+/// Each block, by `<maker>/<first year>`: its models as published, their `incomplete` messages, and the text its name
+/// hashes, less the format
+fn block_bodies(
     models: &BTreeMap<String, Value>,
     incomplete: &BTreeMap<&String, Vec<String>>,
-) -> BTreeMap<String, String> {
+) -> BTreeMap<String, (Value, Value, String)> {
     blocks(models)
         .into_par_iter()
         .map(|(block, ids)| {
@@ -262,14 +287,34 @@ fn write_blocks(
                 .iter()
                 .filter_map(|id| Some((id.to_string(), json!(incomplete.get(id)?))))
                 .collect();
-            let body =
-                json!({"format": format, "models": block_models, "incomplete": block_incomplete});
-            let models_text = ids.iter().fold(format.to_string(), |text, id| {
-                text + id.as_str() + &jsonb_text(&models[*id])
-            });
-            let path = format!("models/{block}.{}.json", digest(&models_text));
+            let models_text: String = ids
+                .iter()
+                .map(|id| id.to_string() + &jsonb_text(&models[*id]))
+                .collect();
+            (
+                block,
+                (json!(block_models), json!(block_incomplete), models_text),
+            )
+        })
+        .collect()
+}
+
+/// Each block's file, named by its content
+fn write_blocks(
+    output: &Path,
+    format: u64,
+    bodies: &BTreeMap<String, (Value, Value, String)>,
+) -> BTreeMap<String, String> {
+    bodies
+        .par_iter()
+        .map(|(block, (models, incomplete, models_text))| {
+            let body = json!({"format": format, "models": models, "incomplete": incomplete});
+            let path = format!(
+                "models/{block}.{}.json",
+                digest(&format!("{format}{models_text}"))
+            );
             write_new(output, &path, &body.to_string());
-            (block, path)
+            (block.clone(), path)
         })
         .collect()
 }
@@ -616,6 +661,29 @@ mod tests {
                 .map(|comparison| &comparison["of"])
                 .collect::<Vec<_>>(),
             ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn format_6_puts_the_kit_in_the_vocabulary() {
+        let [index, vocabulary, kit, comparison] = [1, 2, 3, 4].map(|each| json!(each));
+        let published = |format| files(format, &index, &vocabulary, &kit, &comparison);
+        assert_eq!(
+            published(5),
+            [
+                ("index", vec![&index]),
+                ("vocabulary", vec![&vocabulary]),
+                ("kit", vec![&kit]),
+                ("comparison", vec![&comparison]),
+            ]
+        );
+        assert_eq!(
+            published(6),
+            [
+                ("index", vec![&index]),
+                ("vocabulary", vec![&vocabulary, &kit]),
+                ("comparison", vec![&comparison]),
+            ]
         );
     }
 

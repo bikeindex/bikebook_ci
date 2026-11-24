@@ -21,6 +21,7 @@
 
 use crate::index::year_records;
 use crate::ruby::{array, blank};
+use crate::with;
 use bikebook_data_checks::{Catalog, Schemas, assert_none, representative_vehicle_ids};
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
@@ -299,16 +300,6 @@ impl Reader<'_> {
 }
 
 /// The object with `added` over its own
-fn with(object: &Value, added: impl IntoIterator<Item = (String, Value)>) -> Value {
-    object
-        .as_object()
-        .unwrap()
-        .clone()
-        .into_iter()
-        .chain(added)
-        .collect()
-}
-
 fn joined(prefix: &str, name: &str) -> String {
     if prefix.is_empty() {
         name.to_string()
