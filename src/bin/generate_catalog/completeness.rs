@@ -1,7 +1,6 @@
 //! What a model is missing to be complete, the messages the viewer shows for it
 
 use crate::ruby::{array, blank};
-use bikebook_data_checks::dashed;
 use serde_json::Value;
 
 const DRIVETRAINLESS_TYPES: [&str; 12] = [
@@ -94,8 +93,7 @@ pub fn messages(vehicle: &Value) -> Vec<String> {
 }
 
 fn exempt(vehicle: &Value) -> Vec<&'static str> {
-    let kind = dashed(vehicle["type"].as_str().unwrap_or_default());
-    let kind = kind.as_str();
+    let kind = vehicle["type"].as_str().unwrap_or_default();
     let configuration = vehicle["model_configuration"].as_str();
     [
         (
@@ -166,23 +164,6 @@ mod tests {
                 "sizes needs at least one entry",
             ]
         );
-    }
-
-    #[test]
-    fn a_type_is_exempt_in_either_spelling() {
-        for kind in ["bike_trailer", "trailer"] {
-            assert_eq!(
-                exempt(&json!({"type": kind})),
-                ["drivetrain", "primary_activity", "wheels", "brakes"]
-            );
-        }
-        for kind in ["epamd", "personal-mobility", "scooter", "non-e-scooter"] {
-            assert_eq!(
-                exempt(&json!({"type": kind})),
-                ["drivetrain", "primary_activity", "brakes"]
-            );
-        }
-        assert_eq!(exempt(&json!({"type": "e-atv"})), ["drivetrain", "brakes"]);
     }
 
     #[test]

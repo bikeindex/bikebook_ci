@@ -20,8 +20,6 @@ pub struct BikeData {
     directory: PathBuf,
     /// What bike_data doesn't hold
     additions: Value,
-    /// Its slugs spelled as schema 2.0.0 does
-    dashes: bool,
 }
 
 pub struct Activity {
@@ -46,7 +44,7 @@ fn git(arguments: &[&str]) -> String {
 
 impl BikeData {
     /// Cloned once per commit
-    pub fn fetch(dashes: bool) -> BikeData {
+    pub fn fetch() -> BikeData {
         let cache = std::env::temp_dir().join("bike_data");
         let latest = git(&["ls-remote", REPOSITORY, "HEAD"])
             .split_whitespace()
@@ -66,10 +64,10 @@ impl BikeData {
             }
             cloned
         };
-        BikeData::new(directory, dashes)
+        BikeData::new(directory)
     }
 
-    fn new(directory: PathBuf, dashes: bool) -> BikeData {
+    fn new(directory: PathBuf) -> BikeData {
         BikeData {
             commit: directory.file_name().unwrap().to_string_lossy().to_string(),
             directory,
@@ -77,7 +75,6 @@ impl BikeData {
                 "../../../catalog_snapshot/bike_data_additions.json"
             ))
             .unwrap(),
-            dashes,
         }
     }
 
@@ -90,7 +87,7 @@ impl BikeData {
             .collect()
     }
 
-    /// Bike Index's slug for a name
+    /// Bike Index's slug for a name, spelled as schema 2.0.0 does
     fn slugify(&self, name: &str) -> String {
         let slug = PARENTHESES
             .replace_all(name, "")
@@ -104,7 +101,7 @@ impl BikeData {
         let slug = self.additions["slug_aliases"][&slug]
             .as_str()
             .map_or(slug, str::to_string);
-        if self.dashes { dashed(&slug) } else { slug }
+        dashed(&slug)
     }
 
     fn named(&self, name: &str) -> (String, String) {
@@ -288,23 +285,12 @@ mod tests {
         files
             .iter()
             .for_each(|(file, body)| fs::write(directory.join("data").join(file), body).unwrap());
-        BikeData::new(directory, false)
+        BikeData::new(directory)
     }
 
     #[test]
-    fn slugify_drops_parentheses_and_applies_aliases() {
+    fn slugify_drops_parentheses_applies_aliases_and_spells_a_slug_as_schema_2_0_0_does() {
         let data = bike_data(&[]);
-        assert_eq!(data.slugify("Cross-Country (XC)"), "cross_country");
-        assert_eq!(data.slugify("Bell/Noisemaker"), "bell_noisemaker");
-        assert_eq!(data.slugify("Carbon or Composite"), "carbon");
-    }
-
-    #[test]
-    fn slugify_spells_a_slug_as_schema_2_0_0_does() {
-        let data = BikeData {
-            dashes: true,
-            ..bike_data(&[])
-        };
         assert_eq!(data.slugify("Cross-Country (XC)"), "cross-country");
         assert_eq!(data.slugify("Bell/Noisemaker"), "bellnoisemaker");
         assert_eq!(data.slugify("Carbon or Composite"), "composite");
@@ -329,11 +315,11 @@ mod tests {
             activities,
             [
                 ["mtb", "MTB (Mountain Biking)", "mtb"],
-                ["road_biking", "Road Biking", "road_biking"],
-                ["bike_polo", "Bike Polo", "bike_polo"],
-                ["mtb_bikepacking", "MTB: Bikepacking", "mtb"],
-                ["road_bikepacking", "Road: Bikepacking", "road_biking"],
-                ["dirt_travel", "Dirt Travel", "dirt_travel"],
+                ["road-biking", "Road Biking", "road-biking"],
+                ["bike-polo", "Bike Polo", "bike-polo"],
+                ["mtb-bikepacking", "MTB: Bikepacking", "mtb"],
+                ["road-bikepacking", "Road: Bikepacking", "road-biking"],
+                ["dirt-travel", "Dirt Travel", "dirt-travel"],
             ]
         );
     }
@@ -345,10 +331,10 @@ mod tests {
             "position (front/rear/both),name,count,internal\nfront,1,1,false\nrear,Fixed,1,false\nboth,Belt Drive,1,false\nfront,6 Speed Pinion Gearbox,6,true\n",
         )]);
         let names = data.drivetrain();
-        assert_eq!(names["1_front"], "1 Front");
+        assert_eq!(names["1-front"], "1 Front");
         assert_eq!(names["fixed"], "Fixed");
-        assert_eq!(names["belt_drive"], "Belt Drive");
-        assert_eq!(names["6_speed_pinion"], "6 Speed Pinion Gearbox Front");
+        assert_eq!(names["belt-drive"], "Belt Drive");
+        assert_eq!(names["6-speed-pinion-gearbox"], "6 Speed Pinion Gearbox");
     }
 
     #[test]

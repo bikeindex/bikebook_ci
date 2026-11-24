@@ -88,25 +88,8 @@ pub fn publish(output: &Path) {
         return println!("the schemas are unchanged, so each format keeps its schema viewer");
     }
     let models = crate::models(&Catalog::load());
-    let markets = crate::markets::Markets::load(
-        &schemas.documents[&Schemas::id(
-            "vocabulary",
-            &schemas.current_version("vocabulary").unwrap(),
-        )],
-    );
+    let representatives = representative_vehicle_ids();
     stale.into_iter().for_each(|format| {
-        let ids = crate::published_ids(format, &markets, &models);
-        // Bike Book suffixes a file's own model's key with its market too, when that isn't its maker's home market
-        let representatives: Vec<String> = representative_vehicle_ids()
-            .into_iter()
-            .map(|key| {
-                ids.get(&key)
-                    .or_else(|| ids.get(key.split('@').next().unwrap()))
-                    .cloned()
-                    .unwrap_or(key)
-            })
-            .collect();
-        let models = crate::published_models(format, &models, &ids);
         let manifest_path = format!("manifest.{format}.json");
         let manifest = crate::read(output, &manifest_path)
             .expect("generate_catalog writes the manifest first");

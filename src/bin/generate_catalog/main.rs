@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 
 /// The published files' layouts, oldest first, each with its own manifest. A new one is published beside the one before
 /// it until every reader has moved to it: see the format-update skill
-const FORMATS: [u64; 2] = [4, 5];
+const FORMATS: [u64; 1] = [5];
 /// How long a file outlives the last manifest naming it, for a client still holding an older manifest
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -68,7 +68,7 @@ fn main() {
             .filter_map(|slug| Some(slug.as_str()?.to_string()))
             .collect()
     };
-    let bike_data = BikeData::fetch(dashes(&schema_version));
+    let bike_data = BikeData::fetch();
     println!("bike_data at {}", bike_data.commit);
     let activities = bike_data.primary_activities();
     let markets = Markets::load(&vocabulary_schema);
@@ -102,19 +102,17 @@ fn main() {
 
     let mut index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
     // The snapshots spell ids and slugs as schema 1.x does
-    if dashes(&schema_version) {
-        let options = &index_snapshot["filter_options"]["e_vehicle_classification"];
-        index_snapshot["filter_options"]["e_vehicle_classification"] = options
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(id, name)| (id.replace('_', "-"), name.clone()))
-            .collect();
-    }
+    let options = &index_snapshot["filter_options"]["e_vehicle_classification"];
+    index_snapshot["filter_options"]["e_vehicle_classification"] = options
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(id, name)| (id.replace('_', "-"), name.clone()))
+        .collect();
     let vocabulary_snapshot = snapshot(include_str!("../../../catalog_snapshot/vocabulary.json"));
     let families: BTreeMap<String, &str> = activities
         .iter()
-        .map(|activity| (dashed(&activity.slug), &*activity.family))
+        .map(|activity| (activity.slug.clone(), &*activity.family))
         .collect();
     let bike_data_names = bike_data.names(&activities);
     let names: Map<String, Value> = vehicle_schema["$defs"]
@@ -158,14 +156,12 @@ fn main() {
     let referenced: BTreeSet<String> = FORMATS
         .iter()
         .flat_map(|&format| {
-            let ids = published_ids(format, &markets, &all);
-            let models = published_models(format, &all, &ids);
-            let incomplete: BTreeMap<&String, Vec<String>> = models
+            let incomplete: BTreeMap<&String, Vec<String>> = all
                 .par_iter()
                 .map(|(id, model)| (id, completeness::messages(model)))
                 .filter(|(_, messages)| !messages.is_empty())
                 .collect();
-            let rows: Vec<Row> = models
+            let rows: Vec<Row> = all
                 .iter()
                 .map(|(id, vehicle)| Row {
                     id,
@@ -178,7 +174,7 @@ fn main() {
                     .map(|row| {
                         let family = row.vehicle["primary_activity"]
                             .as_str()
-                            .and_then(|activity| families.get(&dashed(activity)));
+                            .and_then(|activity| families.get(activity));
                         (
                             family.map(|family| family.to_string()),
                             comparison::call(row.vehicle, &classifications),
@@ -191,12 +187,7 @@ fn main() {
                 .par_iter()
                 .map(|row| row.to_json(&markets, &classifications))
                 .collect();
-            let id = |key: &String| ids.get(key).unwrap_or(key).clone();
-            let variants: BTreeMap<String, Vec<String>> = variants
-                .iter()
-                .map(|(base, keys)| (id(base), keys.iter().map(&id).collect()))
-                .collect();
-            let blocks = write_blocks(&output, format, &models, &incomplete);
+            let blocks = write_blocks(&output, format, &all, &incomplete);
             let (index_models, listed_comparisons) =
                 listed(&index_rows, &comparisons, &variants);
             let index = json!({
@@ -361,53 +352,6 @@ fn models(catalog: &Catalog) -> BTreeMap<String, Value> {
                 .resolve(data)
                 .unwrap_or_else(|error| panic!("{path}: {error}"));
             (Catalog::citation_key(path), resolved)
-        })
-        .collect()
-}
-
-/// The id a format publishes each model by, by its citation key: from format 5 the citation key, its file's id for its
-/// file's own model, and before it, as ids were before every market's model of a name and year shared one, its photo
-/// stem
-pub fn published_ids(
-    format: u64,
-    markets: &Markets,
-    models: &BTreeMap<String, Value>,
-) -> BTreeMap<String, String> {
-    models
-        .iter()
-        .map(|(key, model)| {
-            let (id, market) = match key.split_once('@') {
-                Some((id, market)) => (id, Some(market.to_string())),
-                None => (
-                    key.as_str(),
-                    markets.foreign(model, key.split('/').nth(1).unwrap_or_default()),
-                ),
-            };
-            let published = if format < 5 {
-                Catalog::photo_stem(id, market.as_deref(), suffix_separator(model))
-            } else {
-                key.clone()
-            };
-            (key.clone(), published)
-        })
-        .collect()
-}
-
-/// The models by their ids in a format. Before format 5 each also names its own, where from 5 a market's model names
-/// its file's
-pub fn published_models(
-    format: u64,
-    models: &BTreeMap<String, Value>,
-    ids: &BTreeMap<String, String>,
-) -> BTreeMap<String, Value> {
-    models
-        .iter()
-        .map(|(key, model)| {
-            let mut model = model.clone();
-            if format < 5 {
-                model["id"] = json!(ids[key]);
-            }
-            (ids[key].clone(), model)
         })
         .collect()
 }
@@ -662,7 +606,7 @@ mod tests {
             ),
             (
                 "vehicle_models/acme/2025/two.json".to_string(),
-                json!({"schema_version": "1.1.0", "id": "m/acme/2025/two", "markets": ["US"],
+                json!({"schema_version": "2.0.0", "id": "m/acme/2025/two", "markets": ["US"],
                     "market_variants": {"GB": {"markets": ["GB"]}}}),
             ),
         ]));
@@ -678,52 +622,6 @@ mod tests {
                     vec!["m/acme/2025/two@GB".to_string()]
                 ),
             ])
-        );
-    }
-
-    #[test]
-    fn format_5_keys_a_markets_model_by_its_citation_key_and_format_4_by_its_photo_stem() {
-        let catalog = Catalog::new(BTreeMap::from([
-            (
-                "vehicle_models/acme/2025/one.json".to_string(),
-                json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"],
-                    "market_variants": {"GB": {"markets": ["GB"]}}}),
-            ),
-            (
-                "vehicle_models/woom/2026/go-1.json".to_string(),
-                json!({"schema_version": "2.0.0", "id": "m/woom/2026/go-1", "markets": ["US"]}),
-            ),
-        ]));
-        let all = models(&catalog);
-        let markets = Markets::load(&json!({"$defs": {"market": {"enum": ["US", "EU", "GB"]}}}));
-        let published = |format: u64| {
-            let ids = published_ids(format, &markets, &all);
-            published_models(format, &all, &ids)
-                .into_iter()
-                .map(|(id, model)| (id, model["id"].clone()))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            published(4),
-            [
-                ("m/acme/2025/one".to_string(), json!("m/acme/2025/one")),
-                (
-                    "m/acme/2025/one-gb".to_string(),
-                    json!("m/acme/2025/one-gb")
-                ),
-                (
-                    "m/woom/2026/go-1-us".to_string(),
-                    json!("m/woom/2026/go-1-us")
-                ),
-            ]
-        );
-        assert_eq!(
-            published(5),
-            [
-                ("m/acme/2025/one".to_string(), json!("m/acme/2025/one")),
-                ("m/acme/2025/one@GB".to_string(), json!("m/acme/2025/one")),
-                ("m/woom/2026/go-1".to_string(), json!("m/woom/2026/go-1")),
-            ]
         );
     }
 

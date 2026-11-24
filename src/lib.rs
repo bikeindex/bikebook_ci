@@ -70,15 +70,6 @@ pub fn dashed(value: &str) -> String {
         .map_or_else(|| value.replace('_', "-"), |(_, new)| new.to_string())
 }
 
-/// Whether a schema version dashes its ids and slugs
-pub fn dashes(schema_version: &str) -> bool {
-    schema_version
-        .split('.')
-        .next()
-        .and_then(|major| major.parse::<u64>().ok())
-        .is_some_and(|major| major >= 2)
-}
-
 /// A missing data directory reads as an empty catalog, which passes every check
 static ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     let root = PathBuf::from(
@@ -170,15 +161,6 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
     );
 }
 
-/// What joins a model's id to a suffix on its photos: a market's model's market, a colorway's paint
-pub fn suffix_separator(data: &Value) -> char {
-    if dashes(data["schema_version"].as_str().unwrap_or_default()) {
-        '-'
-    } else {
-        '_'
-    }
-}
-
 pub struct Catalog {
     pub files: BTreeMap<String, Value>,
     /// Each file's `market_variants`, as the overlays over it they stand for, by their citation key: `<id>@<market>`
@@ -262,8 +244,8 @@ impl Catalog {
 
     /// What a market's model's photos are keyed by, as its id was before every market's model of a name and year
     /// shared one: the id suffixed with the market, unless it already ends in it
-    pub fn photo_stem(id: &str, market: Option<&str>, separator: char) -> String {
-        match market.map(|market| format!("{separator}{}", market.to_lowercase())) {
+    pub fn photo_stem(id: &str, market: Option<&str>) -> String {
+        match market.map(|market| format!("-{}", market.to_lowercase())) {
             Some(suffix) if !id.ends_with(&suffix) => format!("{id}{suffix}"),
             _ => id.to_string(),
         }
@@ -277,9 +259,9 @@ impl Catalog {
             .or_else(|| {
                 self.variants
                     .iter()
-                    .find(|(key, data)| {
+                    .find(|(key, _)| {
                         let (base, market) = key.split_once('@').unwrap();
-                        Catalog::photo_stem(base, Some(market), suffix_separator(data)) == id
+                        Catalog::photo_stem(base, Some(market)) == id
                     })
                     .map(|(_, data)| data)
             })
@@ -750,16 +732,16 @@ mod tests {
 
     #[test]
     fn merges_an_overlay_item_by_item() {
-        let base = json!({"schema_version": "1.0.0", "id": "m/acme/2025/one", "markets": ["US"], "frame": {"material": "aluminum"},
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"], "frame": {"material": "aluminum"},
             "sizes": [{"name": "S", "reach": 1}, {"name": "M", "reach": 2}]});
-        let overlay = json!({"schema_version": "1.0.0", "id": "m/acme/2025/one_ca", "base": "m/acme/2025/one", "markets": ["CA"],
+        let overlay = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one-ca", "base": "m/acme/2025/one", "markets": ["CA"],
             "frame": false, "sizes": {"M": {"reach": 3}, "L": {"name": "L", "reach": 4}}});
         let catalog = Catalog::new(BTreeMap::from([(
             "vehicle_models/acme/2025/one.json".to_string(),
             base,
         )]));
         let resolved = catalog.resolve(&overlay).unwrap();
-        assert_eq!(resolved["id"], "m/acme/2025/one_ca");
+        assert_eq!(resolved["id"], "m/acme/2025/one-ca");
         assert_eq!(resolved["markets"], json!(["CA"]));
         assert!(resolved.get("frame").is_none());
         assert_eq!(
@@ -770,7 +752,7 @@ mod tests {
 
     #[test]
     fn a_market_variant_shares_its_bases_id_and_resolves_as_an_overlay_over_it() {
-        let base = json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
             "market_variants": {"US": {"markets": ["US"], "model": "One US"}}});
         let catalog = Catalog::new(BTreeMap::from([(
             "vehicle_models/acme/2025/one.json".to_string(),
@@ -781,11 +763,11 @@ mod tests {
             ["m/acme/2025/one@US"]
         );
         let variant = catalog.by_id("m/acme/2025/one@US").unwrap();
-        assert_eq!(catalog.by_id("m/acme/2025/one_us"), Some(variant));
+        assert_eq!(catalog.by_id("m/acme/2025/one-us"), Some(variant));
         assert_eq!(catalog.by_id("m/acme/2025/one"), Some(&base));
         assert_eq!(
             catalog.resolve(variant).unwrap(),
-            json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["US"], "model": "One US"})
+            json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"], "model": "One US"})
         );
         assert!(
             catalog
@@ -799,15 +781,15 @@ mod tests {
     #[test]
     fn a_photo_stem_suffixes_the_market_unless_the_id_ends_in_it() {
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one-two", Some("GB"), '-'),
+            Catalog::photo_stem("m/acme/2025/one-two", Some("GB")),
             "m/acme/2025/one-two-gb"
         );
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one-us", Some("US"), '-'),
+            Catalog::photo_stem("m/acme/2025/one-us", Some("US")),
             "m/acme/2025/one-us"
         );
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one", None, '-'),
+            Catalog::photo_stem("m/acme/2025/one", None),
             "m/acme/2025/one"
         );
     }
