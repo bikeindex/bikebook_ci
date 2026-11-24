@@ -30,6 +30,16 @@ fn snapshot(json: &str) -> Value {
     serde_json::from_str(json).unwrap()
 }
 
+fn with(object: &Value, added: impl IntoIterator<Item = (String, Value)>) -> Value {
+    object
+        .as_object()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .chain(added)
+        .collect()
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let output = PathBuf::from(
@@ -133,6 +143,7 @@ fn main() {
         &kit["component_groups"],
         &components.iter().map(String::as_str).collect::<Vec<_>>()
     ));
+    let kit = json!({"kit": kit});
     let variants = market_variants(&catalog);
     let published_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
     let incomplete: BTreeMap<&String, Vec<String>> = all
@@ -194,23 +205,27 @@ fn main() {
         })
         .collect();
     let comparison = json!({"fields": comparison_fields});
+    let block_bodies = block_bodies(&all, &incomplete);
     let referenced: BTreeSet<String> = FORMATS
         .iter()
         .flat_map(|&format| {
-            let blocks = write_blocks(&output, format, &all, &incomplete);
-            let files: Vec<(&str, String)> = files(format, &index, &vocabulary, &kit, &comparison)
+            let blocks = write_blocks(&output, format, &block_bodies);
+            let written: Vec<(&str, String)> = files(format, &index, &vocabulary, &kit, &comparison)
                 .into_iter()
-                .map(|(name, body)| (name, write_hashed(&output, name, &body)))
+                .map(|(name, parts)| {
+                    let fields = parts.into_iter().flat_map(|part| part.as_object().unwrap().clone());
+                    (name, write_hashed(&output, name, &with(&json!({"format": format}), fields)))
+                })
                 .chain(schema_viewer::published(&output, format).map(|path| ("schema_viewer", path)))
                 .collect();
             let mut manifest = json!({"format": format, "published_at": published_at, "schema_version": schema_version});
-            files
+            written
                 .iter()
                 .for_each(|(name, path)| manifest[name] = json!(path));
             manifest["blocks"] = json!(blocks);
             let manifest_path = format!("manifest.{format}.json");
             write(&output, &manifest_path, &gzip(&manifest.to_string()));
-            files
+            written
                 .into_iter()
                 .map(|(_, path)| path)
                 .chain(blocks.into_values())
@@ -234,45 +249,33 @@ fn main() {
     );
 }
 
-/// The files a manifest names but its blocks and schema viewer, each led by its `format`. From format 6 the vocabulary
-/// holds the kit
-fn files(
+/// The files a manifest names but its blocks and schema viewer, each as the objects whose fields it holds. From format
+/// 6 the vocabulary holds the kit
+fn files<'a>(
     format: u64,
-    index: &Value,
-    vocabulary: &Value,
-    kit: &Value,
-    comparison: &Value,
-) -> Vec<(&'static str, Value)> {
-    let kit = json!({"kit": kit});
-    let named = if format < 6 {
-        vec![("vocabulary", vocabulary.clone()), ("kit", kit)]
+    index: &'a Value,
+    vocabulary: &'a Value,
+    kit: &'a Value,
+    comparison: &'a Value,
+) -> Vec<(&'static str, Vec<&'a Value>)> {
+    let vocabulary = if format < 6 {
+        vec![("vocabulary", vec![vocabulary]), ("kit", vec![kit])]
     } else {
-        let merged = [vocabulary, &kit]
-            .into_iter()
-            .flat_map(|body| body.as_object().unwrap().clone());
-        vec![("vocabulary", Value::Object(merged.collect()))]
+        vec![("vocabulary", vec![vocabulary, kit])]
     };
-    [("index", index.clone())]
+    [("index", vec![index])]
         .into_iter()
-        .chain(named)
-        .chain([("comparison", comparison.clone())])
-        .map(|(name, body)| {
-            let fields = body.as_object().unwrap().clone();
-            let stamped = [("format".to_string(), json!(format))]
-                .into_iter()
-                .chain(fields);
-            (name, Value::Object(stamped.collect()))
-        })
+        .chain(vocabulary)
+        .chain([("comparison", vec![comparison])])
         .collect()
 }
 
-/// Each model's blocks, by `<maker>/<first year>`, named by their content
-fn write_blocks(
-    output: &Path,
-    format: u64,
+/// Each block, by `<maker>/<first year>`: its models as published, their `incomplete` messages, and the text its name
+/// hashes, less the format
+fn block_bodies(
     models: &BTreeMap<String, Value>,
     incomplete: &BTreeMap<&String, Vec<String>>,
-) -> BTreeMap<String, String> {
+) -> BTreeMap<String, (Value, Value, String)> {
     blocks(models)
         .into_par_iter()
         .map(|(block, ids)| {
@@ -284,14 +287,34 @@ fn write_blocks(
                 .iter()
                 .filter_map(|id| Some((id.to_string(), json!(incomplete.get(id)?))))
                 .collect();
-            let body =
-                json!({"format": format, "models": block_models, "incomplete": block_incomplete});
-            let models_text = ids.iter().fold(format.to_string(), |text, id| {
-                text + id.as_str() + &jsonb_text(&models[*id])
-            });
-            let path = format!("models/{block}.{}.json", digest(&models_text));
+            let models_text: String = ids
+                .iter()
+                .map(|id| id.to_string() + &jsonb_text(&models[*id]))
+                .collect();
+            (
+                block,
+                (json!(block_models), json!(block_incomplete), models_text),
+            )
+        })
+        .collect()
+}
+
+/// Each block's file, named by its content
+fn write_blocks(
+    output: &Path,
+    format: u64,
+    bodies: &BTreeMap<String, (Value, Value, String)>,
+) -> BTreeMap<String, String> {
+    bodies
+        .par_iter()
+        .map(|(block, (models, incomplete, models_text))| {
+            let body = json!({"format": format, "models": models, "incomplete": incomplete});
+            let path = format!(
+                "models/{block}.{}.json",
+                digest(&format!("{format}{models_text}"))
+            );
             write_new(output, &path, &body.to_string());
-            (block, path)
+            (block.clone(), path)
         })
         .collect()
 }
@@ -643,33 +666,24 @@ mod tests {
 
     #[test]
     fn format_6_puts_the_kit_in_the_vocabulary() {
-        let files = |format| {
-            let files = files(
-                format,
-                &json!({"models": []}),
-                &json!({"names": {}}),
-                &json!({"units": "mm"}),
-                &json!({"fields": {}}),
-            );
-            json!(files).to_string()
-        };
-        let expected = |files: Value| files.to_string();
+        let [index, vocabulary, kit, comparison] = [1, 2, 3, 4].map(|each| json!(each));
+        let published = |format| files(format, &index, &vocabulary, &kit, &comparison);
         assert_eq!(
-            files(5),
-            expected(json!([
-                ["index", {"format": 5, "models": []}],
-                ["vocabulary", {"format": 5, "names": {}}],
-                ["kit", {"format": 5, "kit": {"units": "mm"}}],
-                ["comparison", {"format": 5, "fields": {}}],
-            ]))
+            published(5),
+            [
+                ("index", vec![&index]),
+                ("vocabulary", vec![&vocabulary]),
+                ("kit", vec![&kit]),
+                ("comparison", vec![&comparison]),
+            ]
         );
         assert_eq!(
-            files(6),
-            expected(json!([
-                ["index", {"format": 6, "models": []}],
-                ["vocabulary", {"format": 6, "names": {}, "kit": {"units": "mm"}}],
-                ["comparison", {"format": 6, "fields": {}}],
-            ]))
+            published(6),
+            [
+                ("index", vec![&index]),
+                ("vocabulary", vec![&vocabulary, &kit]),
+                ("comparison", vec![&comparison]),
+            ]
         );
     }
 
