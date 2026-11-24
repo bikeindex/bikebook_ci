@@ -211,13 +211,10 @@ impl Catalog {
             .and_then(|path| self.files.get(&path))
             .or_else(|| self.variants.get(id))
             .or_else(|| {
+                let (base, market) = id.rsplit_once('-')?;
                 self.variants
-                    .iter()
-                    .find(|(key, _)| {
-                        let (base, market) = key.split_once('@').unwrap();
-                        Catalog::photo_stem(base, Some(market)) == id
-                    })
-                    .map(|(_, data)| data)
+                    .get(&format!("{base}@{}", market.to_uppercase()))
+                    .filter(|_| Catalog::photo_stem(base, Some(market)) == id)
             })
     }
 
@@ -700,6 +697,7 @@ mod tests {
         );
         let variant = catalog.by_id("m/acme/2025/one@US").unwrap();
         assert_eq!(catalog.by_id("m/acme/2025/one-us"), Some(variant));
+        assert_eq!(catalog.by_id("m/acme/2025/one-US"), None);
         assert_eq!(catalog.by_id("m/acme/2025/one"), Some(&base));
         assert_eq!(
             catalog.resolve(variant).unwrap(),

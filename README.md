@@ -34,6 +34,8 @@ The index lists a model's `market_variants` that state their own `markets` as it
 
 Format 5 keys a market variant by its citation key: Ebycco's GB EB7Pro 24" is `m/ebycco/2025/eb7pro-24@GB` in its block's `models` and `incomplete` and in its file's index row's `variants`, as `{"id": "m/ebycco/2025/eb7pro-24@GB", "markets": ["GB"]}`, while the model's own `id` is its file's, `m/ebycco/2025/eb7pro-24`, which also keys the file's own model.
 
+Format 6 is format 5 with the kit in the vocabulary, under its `kit`, rather than in a file of its own: `manifest.6.json` names no `kit`.
+
 Display names, primary activities (with their families, priorities and short names), vehicle types, wheel sizes and component groups come from [bike_data](https://github.com/bikeindex/bike_data)'s latest commit, fetched on every run. A bike_data change is therefore published without a change here. If bike_data is missing a value, the publish stops.
 
 Some of the catalog's hand-written values aren't in bikebook or bike_data yet: the viewer's kit, the names of enums bike_data doesn't list, currencies, filter labels, market rules, bikebook's slug aliases and its own Dirt Travel activity. Until they are ([#3](https://github.com/bikeindex/bikebook_ci/issues/3)), they're copied from `catalog_snapshot/`.
