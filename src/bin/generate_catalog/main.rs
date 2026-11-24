@@ -100,15 +100,7 @@ fn main() {
         .filter(|path| path != "retired.json")
         .collect();
 
-    let mut index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
-    // The snapshots spell ids and slugs as schema 1.x does
-    let options = &index_snapshot["filter_options"]["e_vehicle_classification"];
-    index_snapshot["filter_options"]["e_vehicle_classification"] = options
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(id, name)| (id.replace('_', "-"), name.clone()))
-        .collect();
+    let index_snapshot = snapshot(include_str!("../../../catalog_snapshot/index.json"));
     let vocabulary_snapshot = snapshot(include_str!("../../../catalog_snapshot/vocabulary.json"));
     let families: BTreeMap<String, &str> = activities
         .iter()
@@ -120,7 +112,7 @@ fn main() {
         .unwrap()
         .keys()
         .filter_map(|field| {
-            let named = match bike_data_names.get(field.as_str()) {
+            let named: Value = match bike_data_names.get(field.as_str()) {
                 Some(source) => enumerated(field)
                     .into_iter()
                     .map(|slug| {
@@ -130,17 +122,7 @@ fn main() {
                         (slug, json!(name))
                     })
                     .collect(),
-                None => vocabulary_snapshot["names"]
-                    .get(field)?
-                    .as_object()?
-                    .iter()
-                    .map(|(slug, name)| {
-                        let spelled = enumerated(field)
-                            .into_iter()
-                            .find(|value| dashed(value) == dashed(slug));
-                        (spelled.unwrap_or_else(|| slug.clone()), name.clone())
-                    })
-                    .collect(),
+                None => vocabulary_snapshot["names"].get(field)?.clone(),
             };
             Some((field.clone(), named))
         })

@@ -87,7 +87,7 @@ impl BikeData {
             .collect()
     }
 
-    /// Bike Index's slug for a name, spelled as schema 2.0.0 does
+    /// Bike Index's slug for a name
     fn slugify(&self, name: &str) -> String {
         let slug = PARENTHESES
             .replace_all(name, "")
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn slugify_drops_parentheses_applies_aliases_and_spells_a_slug_as_schema_2_0_0_does() {
+    fn slugify_drops_parentheses_and_applies_aliases() {
         let data = bike_data(&[]);
         assert_eq!(data.slugify("Cross-Country (XC)"), "cross-country");
         assert_eq!(data.slugify("Bell/Noisemaker"), "bellnoisemaker");

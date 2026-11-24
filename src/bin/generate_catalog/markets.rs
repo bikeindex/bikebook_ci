@@ -65,10 +65,8 @@ impl Markets {
         }
     }
 
-    /// keyed by schema 1.x's slugs
     fn home(&self, manufacturer: &str) -> &str {
-        self.lookup("primary_markets", &manufacturer.replace('-', "_"))
-            .unwrap_or("US")
+        self.lookup("primary_markets", manufacturer).unwrap_or("US")
     }
 
     /// An unpriced record's store is its page's
