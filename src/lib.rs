@@ -24,61 +24,6 @@ const IDENTITIES: [(&str, &[&str]); 8] = [
     ("brakes", &["position"]),
 ];
 
-/// The 1.x slugs schema 2.0.0 renames rather than dashes
-const RENAMED: [(&str, &str); 33] = [
-    ("bike_trailer", "trailer"),
-    ("cargo_bike", "cargo"),
-    ("cargo_bike_rear", "cargo-rear"),
-    ("cargo_tricycle", "cargo-trike"),
-    ("cargo_tricycle_rear", "cargo-trike-rear"),
-    ("epamd", "personal-mobility"),
-    ("scooter", "non-e-scooter"),
-    ("skateboard", "non-e-skateboard"),
-    ("elliptical_bike", "elliptical"),
-    ("pedal", "foot-pedal"),
-    ("hand_cycle", "hand-pedal"),
-    ("human_powered", "human-not-pedal"),
-    ("road_endurance", "road-endurance-sportive"),
-    ("carbon", "composite"),
-    ("wood", "organic"),
-    ("6_speed_pinion", "6-speed-pinion-gearbox"),
-    ("9_speed_pinion", "9-speed-pinion-gearbox"),
-    ("12_speed_pinion", "12-speed-pinion-gearbox"),
-    ("18_speed_pinion", "18-speed-pinion-gearbox"),
-    ("chain_guide", "bashguardchain-guide"),
-    ("lights", "light"),
-    ("bell_noisemaker", "bellnoisemaker"),
-    ("cassette", "cogcassettefreewheel"),
-    ("grips_tape", "gripstape"),
-    ("aero_bars", "aero-barsextensionsbar-ends"),
-    ("e_vehicle_battery", "ebike-battery"),
-    ("e_vehicle_charger", "ebike-charger"),
-    ("e_vehicle_remote", "ebike-displayremote"),
-    ("e_vehicle_motor", "ebike-motor"),
-    ("e_vehicle_wiring_harness", "e-bike-wiring-harness"),
-    ("top_of_rack_bag", "rack-bag"),
-    ("electronic_shifting_component", "electronic-shifting-part"),
-    ("gps_connectivity_module", "gpsconnectivity-module"),
-];
-
-/// An id or slug as schema 2.0.0 spells it, from either spelling. Not for the enums 2.0.0 leaves underscored, like
-/// `app_update`
-pub fn dashed(value: &str) -> String {
-    RENAMED
-        .iter()
-        .find(|(old, _)| *old == value)
-        .map_or_else(|| value.replace('_', "-"), |(_, new)| new.to_string())
-}
-
-/// Whether a schema version dashes its ids and slugs
-pub fn dashes(schema_version: &str) -> bool {
-    schema_version
-        .split('.')
-        .next()
-        .and_then(|major| major.parse::<u64>().ok())
-        .is_some_and(|major| major >= 2)
-}
-
 /// A missing data directory reads as an empty catalog, which passes every check
 static ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     let root = PathBuf::from(
@@ -170,15 +115,6 @@ pub fn assert_none(check: &str, problems: Vec<String>) {
     );
 }
 
-/// What joins a model's id to a suffix on its photos: a market's model's market, a colorway's paint
-pub fn suffix_separator(data: &Value) -> char {
-    if dashes(data["schema_version"].as_str().unwrap_or_default()) {
-        '-'
-    } else {
-        '_'
-    }
-}
-
 pub struct Catalog {
     pub files: BTreeMap<String, Value>,
     /// Each file's `market_variants`, as the overlays over it they stand for, by their citation key: `<id>@<market>`
@@ -262,8 +198,8 @@ impl Catalog {
 
     /// What a market's model's photos are keyed by, as its id was before every market's model of a name and year
     /// shared one: the id suffixed with the market, unless it already ends in it
-    pub fn photo_stem(id: &str, market: Option<&str>, separator: char) -> String {
-        match market.map(|market| format!("{separator}{}", market.to_lowercase())) {
+    pub fn photo_stem(id: &str, market: Option<&str>) -> String {
+        match market.map(|market| format!("-{}", market.to_lowercase())) {
             Some(suffix) if !id.ends_with(&suffix) => format!("{id}{suffix}"),
             _ => id.to_string(),
         }
@@ -277,16 +213,16 @@ impl Catalog {
             .or_else(|| {
                 self.variants
                     .iter()
-                    .find(|(key, data)| {
+                    .find(|(key, _)| {
                         let (base, market) = key.split_once('@').unwrap();
-                        Catalog::photo_stem(base, Some(market), suffix_separator(data)) == id
+                        Catalog::photo_stem(base, Some(market)) == id
                     })
                     .map(|(_, data)| data)
             })
     }
 
-    /// An overlay applied over its base; any other file as it is. Neither keeps the market variants, each a model of
-    /// its own. An overlay that can't carry a drawing, a bike not suspended at both ends, drops its base's
+    /// A market variant applied over its file; any other file as it is. Neither keeps the market variants, each a model
+    /// of its own. A variant that can't carry a drawing, a bike not suspended at both ends, drops its file's
     pub fn resolve(&self, data: &Value) -> Result<Value, String> {
         let Some(base_id) = data.get("base").and_then(Value::as_str) else {
             let mut resolved = data.clone();
@@ -587,34 +523,16 @@ impl Schemas {
     }
 
     /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
-    /// doesn't name after them sorted, and a year-keyed object newest first. An overlay's removals (null, or false
-    /// for an object), a market variant's among them, are left out, since they follow what it changes
+    /// doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null, or
+    /// false for an object) are left out, since they follow what it changes
     pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
         let mut errors = vec![];
-        let overlay = value.get("base").is_some();
-        let Some(map) = value.as_object() else {
-            return errors;
-        };
-        if overlay {
-            let leading: Vec<&str> = map.keys().take(3).map(String::as_str).collect();
-            if leading != ["schema_version", "id", "base"] {
-                errors.push(format!(
-                    "(root): an overlay starts schema_version, id, base, not {}",
-                    leading.join(", ")
-                ));
-            }
-        }
-        let root = &self.documents[document];
-        let mut body = map.clone();
-        if overlay {
-            body.shift_remove("base");
-        }
         self.order_errors(
             document,
-            root,
-            &Value::Object(body),
+            &self.documents[document],
+            value,
             String::new(),
-            overlay,
+            false,
             &mut errors,
         );
         errors
@@ -750,16 +668,16 @@ mod tests {
 
     #[test]
     fn merges_an_overlay_item_by_item() {
-        let base = json!({"schema_version": "1.0.0", "id": "m/acme/2025/one", "markets": ["US"], "frame": {"material": "aluminum"},
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"], "frame": {"material": "aluminum"},
             "sizes": [{"name": "S", "reach": 1}, {"name": "M", "reach": 2}]});
-        let overlay = json!({"schema_version": "1.0.0", "id": "m/acme/2025/one_ca", "base": "m/acme/2025/one", "markets": ["CA"],
+        let overlay = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one-ca", "base": "m/acme/2025/one", "markets": ["CA"],
             "frame": false, "sizes": {"M": {"reach": 3}, "L": {"name": "L", "reach": 4}}});
         let catalog = Catalog::new(BTreeMap::from([(
             "vehicle_models/acme/2025/one.json".to_string(),
             base,
         )]));
         let resolved = catalog.resolve(&overlay).unwrap();
-        assert_eq!(resolved["id"], "m/acme/2025/one_ca");
+        assert_eq!(resolved["id"], "m/acme/2025/one-ca");
         assert_eq!(resolved["markets"], json!(["CA"]));
         assert!(resolved.get("frame").is_none());
         assert_eq!(
@@ -770,7 +688,7 @@ mod tests {
 
     #[test]
     fn a_market_variant_shares_its_bases_id_and_resolves_as_an_overlay_over_it() {
-        let base = json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
+        let base = json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["EU"], "model": "One",
             "market_variants": {"US": {"markets": ["US"], "model": "One US"}}});
         let catalog = Catalog::new(BTreeMap::from([(
             "vehicle_models/acme/2025/one.json".to_string(),
@@ -781,11 +699,11 @@ mod tests {
             ["m/acme/2025/one@US"]
         );
         let variant = catalog.by_id("m/acme/2025/one@US").unwrap();
-        assert_eq!(catalog.by_id("m/acme/2025/one_us"), Some(variant));
+        assert_eq!(catalog.by_id("m/acme/2025/one-us"), Some(variant));
         assert_eq!(catalog.by_id("m/acme/2025/one"), Some(&base));
         assert_eq!(
             catalog.resolve(variant).unwrap(),
-            json!({"schema_version": "1.1.0", "id": "m/acme/2025/one", "markets": ["US"], "model": "One US"})
+            json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"], "model": "One US"})
         );
         assert!(
             catalog
@@ -799,15 +717,15 @@ mod tests {
     #[test]
     fn a_photo_stem_suffixes_the_market_unless_the_id_ends_in_it() {
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one-two", Some("GB"), '-'),
+            Catalog::photo_stem("m/acme/2025/one-two", Some("GB")),
             "m/acme/2025/one-two-gb"
         );
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one-us", Some("US"), '-'),
+            Catalog::photo_stem("m/acme/2025/one-us", Some("US")),
             "m/acme/2025/one-us"
         );
         assert_eq!(
-            Catalog::photo_stem("m/acme/2025/one", None, '-'),
+            Catalog::photo_stem("m/acme/2025/one", None),
             "m/acme/2025/one"
         );
     }

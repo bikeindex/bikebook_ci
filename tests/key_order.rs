@@ -93,15 +93,6 @@ fn a_reordered_file_is_reported() {
             .iter()
             .any(|error| error.contains("/years: keys must be ordered"))
     );
-
-    let overlay_path = "vehicle_models/porsche/2025/cross_ca.json";
-    let overlay = json!({"schema_version": model["schema_version"], "id": "m/porsche/2025/cross_ca",
-        "base": "m/porsche/2025/cross", "markets": ["CA"]});
-    assert_eq!(
-        order_errors(&schemas, overlay_path, &overlay),
-        Vec::<String>::new()
-    );
-    assert!(!order_errors(&schemas, overlay_path, &swapped(&overlay, "id", "base")).is_empty());
 }
 
 #[test]

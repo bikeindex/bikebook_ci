@@ -264,9 +264,7 @@ fn fit(sizes: &[&Value]) -> Map<String, Value> {
 
 fn wheel_at(wheel: &Value, position: &str, size_name: &Value) -> bool {
     wheel["configured"] != false
-        && array(wheel.get("position")).into_iter().any(|at| {
-            at == position || (at == "front_and_rear" && ["front", "rear"].contains(&position))
-        })
+        && array(wheel.get("position")).contains(&&json!(position))
         && sized(wheel, size_name)
 }
 
@@ -434,7 +432,7 @@ mod tests {
 
     fn classifications() -> Classifications {
         Classifications::new(
-            json!({"evc/us/class_1": {"max_speed": 32.19}})
+            json!({"evc/us/class-1": {"max_speed": 32.19}})
                 .as_object()
                 .unwrap()
                 .clone(),
@@ -444,10 +442,10 @@ mod tests {
     #[test]
     fn medians_over_sizes_and_stated_values() {
         let vehicle = json!({
-            "propulsion": ["pedal_assist"],
-            "motors": [{"kind": "mid_drive", "battery": {"capacity": 500}, "operating_modes": [{"mode": "assist", "e_vehicle_classifications": ["evc/us/class_1"]}]}],
+            "propulsion": ["pedal-assist"],
+            "motors": [{"kind": "mid-drive", "battery": {"capacity": 500}, "operating_modes": [{"mode": "assist", "e_vehicle_classifications": ["evc/us/class-1"]}]}],
             "frame": {"material": "aluminum", "mounts": [{"type": "rack"}, {"type": "bottle", "sizes": ["L"]}, {"type": "bottle"}]},
-            "wheels": [{"position": "front_and_rear", "bsd": 622, "tire_width": 40}],
+            "wheels": [{"position": "front", "bsd": 622, "tire_width": 40}, {"position": "rear", "bsd": 622, "tire_width": 40}],
             "sizes": [
                 {"name": "M", "geometry": {"head_angle": 70, "stack": 600, "reach": 400, "chainstay": 450, "bb_height": 300, "rider_height_min": 1600}},
                 {"name": "L", "geometry": {"head_angle": 71, "stack": 620, "reach": 410, "chainstay": 450, "bb_height": 300, "rider_height_min": 1700}},
