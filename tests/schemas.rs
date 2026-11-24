@@ -36,24 +36,18 @@ fn schema_errors(schemas: &Schemas, catalog: &Catalog) -> Vec<String> {
                 Ok(validator) => validator,
                 Err(error) => return vec![format!("{path}: {error}")],
             };
-            // as it's stored, and as the catalog reads it; a market variant is stored in its base
-            let stored = !catalog.variants.contains_key(path);
-            let mut documents: Vec<(&str, Value)> =
-                stored.then(|| ("", data.clone())).into_iter().collect();
-            if data.get("base").is_some() {
+            // a market variant is stored in its file, so it's checked as the catalog reads it
+            let document = if catalog.variants.contains_key(path) {
                 match catalog.resolve(data) {
-                    Ok(resolved) => documents.push((" resolved", resolved)),
+                    Ok(resolved) => resolved,
                     Err(error) => return vec![format!("{path}: {error}")],
                 }
-            }
-            documents
-                .iter()
-                .flat_map(|(label, document)| {
-                    validator
-                        .iter_errors(document)
-                        .map(|error| format!("{path}{label}: {} {error}", error.instance_path()))
-                        .collect::<Vec<_>>()
-                })
+            } else {
+                data.clone()
+            };
+            validator
+                .iter_errors(&document)
+                .map(|error| format!("{path}: {} {error}", error.instance_path()))
                 .collect()
         })
         .collect()
@@ -129,7 +123,7 @@ fn a_file_breaking_its_schema_is_reported() {
     assert!(
         errors
             .iter()
-            .any(|error| error.starts_with(&format!("{variant} resolved"))),
+            .any(|error| error.starts_with(&format!("{variant}:"))),
         "{errors:?}"
     );
     assert!(

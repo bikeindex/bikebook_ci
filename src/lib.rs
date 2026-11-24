@@ -221,8 +221,8 @@ impl Catalog {
             })
     }
 
-    /// An overlay applied over its base; any other file as it is. Neither keeps the market variants, each a model of
-    /// its own. An overlay that can't carry a drawing, a bike not suspended at both ends, drops its base's
+    /// A market variant applied over its file; any other file as it is. Neither keeps the market variants, each a model
+    /// of its own. A variant that can't carry a drawing, a bike not suspended at both ends, drops its file's
     pub fn resolve(&self, data: &Value) -> Result<Value, String> {
         let Some(base_id) = data.get("base").and_then(Value::as_str) else {
             let mut resolved = data.clone();
@@ -523,34 +523,16 @@ impl Schemas {
     }
 
     /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
-    /// doesn't name after them sorted, and a year-keyed object newest first. An overlay's removals (null, or false
-    /// for an object), a market variant's among them, are left out, since they follow what it changes
+    /// doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null, or
+    /// false for an object) are left out, since they follow what it changes
     pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
         let mut errors = vec![];
-        let overlay = value.get("base").is_some();
-        let Some(map) = value.as_object() else {
-            return errors;
-        };
-        if overlay {
-            let leading: Vec<&str> = map.keys().take(3).map(String::as_str).collect();
-            if leading != ["schema_version", "id", "base"] {
-                errors.push(format!(
-                    "(root): an overlay starts schema_version, id, base, not {}",
-                    leading.join(", ")
-                ));
-            }
-        }
-        let root = &self.documents[document];
-        let mut body = map.clone();
-        if overlay {
-            body.shift_remove("base");
-        }
         self.order_errors(
             document,
-            root,
-            &Value::Object(body),
+            &self.documents[document],
+            value,
             String::new(),
-            overlay,
+            false,
             &mut errors,
         );
         errors

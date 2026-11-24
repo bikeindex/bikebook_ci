@@ -40,20 +40,8 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
     }
 
     let base = data.get("base").and_then(Value::as_str);
-    if let Some(base) = base {
-        match catalog.by_id(base) {
-            None => problems.push(format!("its base {base} isn't in this repo")),
-            Some(based) if based.get("base").is_some() => {
-                problems.push(format!("its base {base} is itself an overlay"))
-            }
-            Some(based) if based.get("schema_version") != data.get("schema_version") => {
-                problems.push(format!("its base {base} is on another schema_version"))
-            }
-            _ => {}
-        }
-        if data.get("geometry_photo").is_some() {
-            problems.push("an overlay takes its base's geometry_photo".to_string());
-        }
+    if base.is_some() && data.get("geometry_photo").is_some() {
+        problems.push("a market variant takes its base's geometry_photo".to_string());
     }
     let resolved = match catalog.resolve(data) {
         Ok(resolved) => resolved,
@@ -93,8 +81,8 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
         problems.push(format!("no years record for its model year {first_year}"));
     }
 
-    // a photo is stored under its model's id, or an overlay's base's, either suffixed with its market or one it or its
-    // base is sold in; a colorway's under that and its paint
+    // a photo is stored under its model's id, alone or suffixed with its market or one it, or a market variant's file, is
+    // sold in; a colorway's under that and its paint
     let sold = [Some(&resolved), base.and_then(|base| catalog.by_id(base))]
         .into_iter()
         .flatten()
@@ -107,14 +95,9 @@ fn file_problems(catalog: &Catalog, path: &str, data: &Value) -> Vec<String> {
         .into_iter()
         .chain(sold)
         .collect();
-    let owners: Vec<String> = std::iter::once(id)
-        .chain(base)
-        .map(unprefixed)
-        .flat_map(|owner| {
-            std::iter::once(None)
-                .chain(markets.iter().map(Some))
-                .map(move |market| Catalog::photo_stem(owner, market.map(String::as_str)))
-        })
+    let owners: Vec<String> = std::iter::once(None)
+        .chain(markets.iter().map(Some))
+        .map(|market| Catalog::photo_stem(unprefixed(id), market.map(String::as_str)))
         .collect();
     if let Some(photo) = resolved.get("stock_photo").and_then(Value::as_str)
         && !owners.iter().any(|owner| owner == photo_stem(photo))
@@ -176,22 +159,6 @@ fn a_misplaced_or_dangling_file_is_reported() {
             "{expected}: {problems:?}"
         );
     }
-
-    let overlay = json!({"schema_version": model["schema_version"], "id": "m/porsche/2025/cross_ca",
-        "base": "m/porsche/2025/cross"});
-    let problems = catalog_problems(&Catalog::new(
-        [(
-            "vehicle_models/porsche/2025/cross_ca.json".to_string(),
-            overlay,
-        )]
-        .into(),
-    ));
-    assert!(
-        problems
-            .iter()
-            .any(|problem| problem.contains("its base m/porsche/2025/cross isn't in this repo")),
-        "{problems:?}"
-    );
 }
 
 #[test]
