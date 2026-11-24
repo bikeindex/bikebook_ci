@@ -24,52 +24,6 @@ const IDENTITIES: [(&str, &[&str]); 8] = [
     ("brakes", &["position"]),
 ];
 
-/// The 1.x slugs schema 2.0.0 renames rather than dashes
-const RENAMED: [(&str, &str); 33] = [
-    ("bike_trailer", "trailer"),
-    ("cargo_bike", "cargo"),
-    ("cargo_bike_rear", "cargo-rear"),
-    ("cargo_tricycle", "cargo-trike"),
-    ("cargo_tricycle_rear", "cargo-trike-rear"),
-    ("epamd", "personal-mobility"),
-    ("scooter", "non-e-scooter"),
-    ("skateboard", "non-e-skateboard"),
-    ("elliptical_bike", "elliptical"),
-    ("pedal", "foot-pedal"),
-    ("hand_cycle", "hand-pedal"),
-    ("human_powered", "human-not-pedal"),
-    ("road_endurance", "road-endurance-sportive"),
-    ("carbon", "composite"),
-    ("wood", "organic"),
-    ("6_speed_pinion", "6-speed-pinion-gearbox"),
-    ("9_speed_pinion", "9-speed-pinion-gearbox"),
-    ("12_speed_pinion", "12-speed-pinion-gearbox"),
-    ("18_speed_pinion", "18-speed-pinion-gearbox"),
-    ("chain_guide", "bashguardchain-guide"),
-    ("lights", "light"),
-    ("bell_noisemaker", "bellnoisemaker"),
-    ("cassette", "cogcassettefreewheel"),
-    ("grips_tape", "gripstape"),
-    ("aero_bars", "aero-barsextensionsbar-ends"),
-    ("e_vehicle_battery", "ebike-battery"),
-    ("e_vehicle_charger", "ebike-charger"),
-    ("e_vehicle_remote", "ebike-displayremote"),
-    ("e_vehicle_motor", "ebike-motor"),
-    ("e_vehicle_wiring_harness", "e-bike-wiring-harness"),
-    ("top_of_rack_bag", "rack-bag"),
-    ("electronic_shifting_component", "electronic-shifting-part"),
-    ("gps_connectivity_module", "gpsconnectivity-module"),
-];
-
-/// An id or slug as schema 2.0.0 spells it, from either spelling. Not for the enums 2.0.0 leaves underscored, like
-/// `app_update`
-pub fn dashed(value: &str) -> String {
-    RENAMED
-        .iter()
-        .find(|(old, _)| *old == value)
-        .map_or_else(|| value.replace('_', "-"), |(_, new)| new.to_string())
-}
-
 /// A missing data directory reads as an empty catalog, which passes every check
 static ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     let root = PathBuf::from(

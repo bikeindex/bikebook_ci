@@ -1,6 +1,5 @@
 //! bike_data's latest commit, which the catalog's names, primary activities and wheel sizes come from
 
-use bikebook_data_checks::dashed;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -97,11 +96,10 @@ impl BikeData {
             .split(|character: char| !character.is_ascii_alphanumeric())
             .filter(|word| !word.is_empty())
             .collect::<Vec<_>>()
-            .join("_");
-        let slug = self.additions["slug_aliases"][&slug]
+            .join("-");
+        self.additions["slug_aliases"][&slug]
             .as_str()
-            .map_or(slug, str::to_string);
-        dashed(&slug)
+            .map_or(slug, str::to_string)
     }
 
     fn named(&self, name: &str) -> (String, String) {
