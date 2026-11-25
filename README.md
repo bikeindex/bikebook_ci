@@ -7,7 +7,7 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 - **Formatting:** every file is pretty-printed with two spaces and a trailing newline.
 - **Key order:** keys are in the property order of the file's schema.
 - **Schemas:** each file is valid against the schema its `schema_version` names, and a market variant once resolved over it. A file on an older version validates against it at `schemas/<name>/v<version>.json`.
-- **Catalog:** each file's `id` matches its path, every model's motors exist, and photos are keyed by the file's id. A file's `market_variants` are each checked as an overlay over it that shares its id, named by its citation key, `<its id>@<market>`. A market's model's photos are keyed by its id, alone or suffixed with `-<market lower-cased>`, and a reference names a market variant by its citation key or by that suffixed id, as ids did before every market's model of a name and year shared one. A market variant that can't carry a geometry drawing, a bike not suspended at both ends, doesn't take its file's `geometry_photo`.
+- **Catalog:** each file's `id` matches its path, every model's motors exist, and photos are keyed by the file's id. A file's `market_variants` are each checked as an overlay over it that shares its id, named by its citation key, `<its id>@<market>`. A market's model's photos are keyed by its id, alone or suffixed with `-<market lower-cased>`, and a reference names a market variant by its citation key, the citation key of another market it states, or that suffixed id, as ids did before every market's model of a name and year shared one. A market variant that can't carry a geometry drawing, a bike not suspended at both ends, doesn't take its file's `geometry_photo`.
 - **Images:** every image is served from `https://bikebook.bikeindex.org/`.
 - **Representative vehicles:** Bike Book's `representative_vehicles.csv` lists vehicle models in the catalog, in alphabetical order.
 - **Schema changes:** a branch that changes a schema edits no data file but the vehicles its base's `representative_vehicles.csv` lists and the components they link. This is a check of its own, the `schema_changes` job, which runs [`bin/check_schema_change`](bin/check_schema_change) on the commit under test. On a Bike Book pull request, it also fails any change to `representative_vehicles.csv`, so a change to the list only merges by hand. To run the schema check on a branch, from a Bike Book checkout: `git fetch origin main && <bikebook_ci>/bin/check_schema_change . origin/main HEAD`.
@@ -24,7 +24,7 @@ A data problem gets fixed in Bike Book, not here.
 
 The catalog is the one the viewer at [bikeindex.org/bikebook](https://bikeindex.org/bikebook) reads. It's published only by GitHub Actions, never from a local run.
 
-Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `kit`, a `comparison`, a `schema_viewer` and a block of models for each maker and first year. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
+Each format of the catalog has a manifest, `manifest.<format>.json`, naming an `index`, a `vocabulary`, a `comparison`, a `schema_viewer` and a block of models for each maker and first year. Each of those files is named by a hash of its content, so a publish uploads only what changed. A file is deleted a day after no manifest names it.
 
 A change to the published layout is a new format, published beside the one before it until every reader has moved to it. `.claude/skills/format-update` has the steps.
 
@@ -32,9 +32,9 @@ The `schema_viewer` is what Bike Index's schema viewer shows: the current schema
 
 The index lists a model's `market_variants` that state their own `markets` as its `variants` (each an `id` and its `markets`) rather than as rows of their own. A lookup picks the variant sold in the registrant's country, and the model itself when none is.
 
-Format 5 keys a market variant by its citation key: Ebycco's GB EB7Pro 24" is `m/ebycco/2025/eb7pro-24@GB` in its block's `models` and `incomplete` and in its file's index row's `variants`, as `{"id": "m/ebycco/2025/eb7pro-24@GB", "markets": ["GB"]}`, while the model's own `id` is its file's, `m/ebycco/2025/eb7pro-24`, which also keys the file's own model.
+Format 6 keys a market variant by its citation key: Ebycco's GB EB7Pro 24" is `m/ebycco/2025/eb7pro-24@GB` in its block's `models` and `incomplete` and in its file's index row's `variants`, as `{"id": "m/ebycco/2025/eb7pro-24@GB", "markets": ["GB"]}`, while the model's own `id` is its file's, `m/ebycco/2025/eb7pro-24`, which also keys the file's own model. A variant that states markets besides its own is also published under each of their citation keys, listed after the variants in `variants` and keyed in its block's `models` and `incomplete` with the same model: Cannondale's JP SuperSix EVO Hi-MOD Disc Ultegra, sold in Japan and Switzerland, is both `m/cannondale/2020/supersix-evo-hi-mod-disc-ultegra@JP` and `…@CH`. Where two variants state a market, its key is the first's.
 
-Format 6 is format 5 with the kit in the vocabulary, under its `kit`, rather than in a file of its own: `manifest.6.json` names no `kit`.
+The vocabulary holds the viewer's kit, under its `kit`.
 
 Display names, primary activities (with their families, priorities and short names), vehicle types, wheel sizes and component groups come from [bike_data](https://github.com/bikeindex/bike_data)'s latest commit, fetched on every run. A bike_data change is therefore published without a change here. If bike_data is missing a value, the publish stops.
 
