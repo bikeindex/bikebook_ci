@@ -119,6 +119,9 @@ pub struct Catalog {
     pub files: BTreeMap<String, Value>,
     /// Each file's `market_variants`, as the overlays over it they stand for, by their citation key: `<id>@<market>`
     pub variants: BTreeMap<String, Value>,
+    /// The citation key of each market a variant states but isn't keyed by, as its variant's: `m/acme/2025/one@CH` for a
+    /// JP variant sold in Switzerland too. Where variants share a market, the first's
+    pub aliases: BTreeMap<String, String>,
 }
 
 impl Catalog {
@@ -144,8 +147,27 @@ impl Catalog {
                         Some((format!("{id}@{market}"), Value::Object(overlay)))
                     })
             })
+            .collect::<BTreeMap<_, _>>();
+        let aliases = variants
+            .iter()
+            .rev()
+            .flat_map(|(key, variant)| {
+                let id = Catalog::expected_id(key);
+                variant
+                    .get("markets")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(move |market| (format!("{id}@{market}"), key.clone()))
+            })
+            .filter(|(alias, _)| !variants.contains_key(alias))
             .collect();
-        Catalog { files, variants }
+        Catalog {
+            files,
+            variants,
+            aliases,
+        }
     }
 
     /// The files by path, then the market variants by citation key
@@ -205,11 +227,15 @@ impl Catalog {
         }
     }
 
-    /// By id, a market variant by its citation key or, as ids named one before markets shared them, its photo stem
+    /// By id, a market variant by its citation key, another market's it states or, as ids named one before markets shared
+    /// them, its photo stem
     pub fn by_id(&self, id: &str) -> Option<&Value> {
         Catalog::path(id)
             .and_then(|path| self.files.get(&path))
-            .or_else(|| self.variants.get(id))
+            .or_else(|| {
+                self.variants
+                    .get(self.aliases.get(id).map_or(id, String::as_str))
+            })
             .or_else(|| {
                 let (base, market) = id.rsplit_once('-')?;
                 self.variants
@@ -710,6 +736,27 @@ mod tests {
                 .get("market_variants")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_market_variant_is_found_by_each_market_it_states() {
+        let catalog = Catalog::new(BTreeMap::from([(
+            "vehicle_models/acme/2025/one.json".to_string(),
+            json!({"schema_version": "2.0.0", "id": "m/acme/2025/one", "markets": ["US"],
+                "market_variants": {"GB": {"markets": ["GB", "IE"]}, "JP": {"markets": ["JP", "CH", "GB", "IE"]}}}),
+        )]));
+        assert_eq!(
+            catalog.aliases,
+            BTreeMap::from([("CH", "JP"), ("IE", "GB")].map(|(alias, key)| (
+                format!("m/acme/2025/one@{alias}"),
+                format!("m/acme/2025/one@{key}")
+            )))
+        );
+        assert_eq!(
+            catalog.by_id("m/acme/2025/one@CH"),
+            catalog.by_id("m/acme/2025/one@JP")
+        );
+        assert_eq!(catalog.by_id("m/acme/2025/one@US"), None);
     }
 
     #[test]
