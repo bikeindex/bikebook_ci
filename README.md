@@ -14,17 +14,19 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 
 ## Running the checks
 
-```sh
-BIKEBOOK_DATA=<path to a bikebook checkout> cargo test --locked --no-fail-fast
-```
-
-A data problem gets fixed in Bike Book, not here. Formatting and key order fix themselves: this rewrites every file either check would report, in place, and lists what it changed.
+Clone this repository into a Bike Book checkout (Bike Book's `.gitignore` ignores `bikebook_ci/`) and run the checks from there, with [Rust](https://rustup.rs) installed:
 
 ```sh
-BIKEBOOK_DATA=<path to a bikebook checkout> cargo run --release --locked --bin fix
+bikebook_ci/bin/test
 ```
 
-A duplicate key keeps its last value, so read the diff before committing it.
+A data problem gets fixed in Bike Book, not here. Formatting and key order fix themselves: `--fix` rewrites every file either check would report, in place, or only the files and directories given, and lists what it changed. A duplicate key keeps its last value, so read the diff before committing it.
+
+```sh
+bikebook_ci/bin/test --fix vehicle_models/trek
+```
+
+To check a Bike Book checkout this isn't cloned into, such as a worktree, name it in `BIKEBOOK_DATA`.
 
 ## Publishing the catalog
 

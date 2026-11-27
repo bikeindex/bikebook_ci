@@ -1,9 +1,23 @@
 use bikebook_data_checks::*;
 use rayon::prelude::*;
 use std::fs;
+use std::path::PathBuf;
 
+/// Fixes every file, or only those in the files and directories given
 fn main() {
     let schemas = Schemas::load();
+    let canonical = |path: PathBuf| {
+        fs::canonicalize(&path).unwrap_or_else(|error| {
+            eprintln!("{}: {error}", path.display());
+            std::process::exit(1)
+        })
+    };
+    let root = canonical(root().to_path_buf());
+    let targets: Vec<PathBuf> = std::env::args()
+        .skip(1)
+        .map(PathBuf::from)
+        .map(canonical)
+        .collect();
     let results: Vec<_> = data_paths()
         .into_par_iter()
         .map(|path| (path, true))
@@ -12,6 +26,12 @@ fn main() {
                 .into_par_iter()
                 .map(|path| (path, false)),
         )
+        .filter(|(path, _)| {
+            targets.is_empty()
+                || targets
+                    .iter()
+                    .any(|target| root.join(path).starts_with(target))
+        })
         .map(|(path, ordered)| (fix(&schemas, &path, ordered), path))
         .collect();
     for (result, path) in &results {
