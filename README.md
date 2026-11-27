@@ -18,7 +18,13 @@ This repository holds no data. It's a Rust crate whose tests read a Bike Book ch
 BIKEBOOK_DATA=<path to a bikebook checkout> cargo test --locked --no-fail-fast
 ```
 
-A data problem gets fixed in Bike Book, not here.
+A data problem gets fixed in Bike Book, not here. Formatting and key order fix themselves: this rewrites every file either check would report, in place, and lists what it changed.
+
+```sh
+BIKEBOOK_DATA=<path to a bikebook checkout> cargo run --release --locked --bin fix
+```
+
+A duplicate key keeps its last value, so read the diff before committing it.
 
 ## Publishing the catalog
 

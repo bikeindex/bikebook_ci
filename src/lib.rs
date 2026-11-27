@@ -545,12 +545,28 @@ impl Schemas {
         }
     }
 
-    /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
-    /// doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null, or
-    /// false for an object) are left out, since they follow what it changes
-    pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
+    /// The `$id` of the schema a data file validates against: the one its `schema_version` names, else its kind's current
+    pub fn document_for(&self, path: &str, data: &Value) -> Result<String, String> {
+        let kind = Catalog::kind(path);
+        let version = data
+            .get("schema_version")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| self.current_version(kind))
+            .ok_or("no schema")?;
+        let id = Schemas::id(kind, &version);
+        match self.documents.contains_key(&id) {
+            true => Ok(id),
+            false => Err(format!("no schema {id}")),
+        }
+    }
+
+    /// The value in the key order the catalog writes, and each object that wasn't: its schema's property order, any
+    /// key it doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null,
+    /// or false for an object) stay where they are, since they follow what it changes
+    pub fn in_key_order(&self, document: &str, value: &Value) -> (Value, Vec<String>) {
         let mut errors = vec![];
-        self.order_errors(
+        let ordered = self.order(
             document,
             &self.documents[document],
             value,
@@ -558,10 +574,10 @@ impl Schemas {
             false,
             &mut errors,
         );
-        errors
+        (ordered, errors)
     }
 
-    fn order_errors(
+    fn order(
         &self,
         document: &str,
         node: &Value,
@@ -569,7 +585,7 @@ impl Schemas {
         path: String,
         overlay: bool,
         errors: &mut Vec<String>,
-    ) {
+    ) -> Value {
         let mut candidates = vec![];
         self.branches(document, node, value, &mut candidates);
         match value {
@@ -628,42 +644,63 @@ impl Schemas {
                         expected.join(", ")
                     ));
                 }
-                for (key, child) in map {
-                    let schema = properties
-                        .iter()
-                        .find(|(name, _)| name == key)
-                        .map(|(_, schema)| *schema)
-                        .or(additional);
-                    if let Some((document, schema)) = schema {
-                        self.order_errors(
-                            document,
-                            schema,
-                            child,
-                            format!("{path}/{key}"),
-                            overlay || path == "/market_variants",
-                            errors,
-                        );
-                    }
-                }
+                let mut in_order = expected.into_iter();
+                Value::Object(
+                    map.iter()
+                        .map(|(key, child)| match removal(child) {
+                            true => key.as_str(),
+                            false => in_order.next().unwrap(),
+                        })
+                        .map(|key| {
+                            let child = &map[key];
+                            let ordered = properties
+                                .iter()
+                                .find(|(name, _)| *name == key)
+                                .map(|(_, schema)| *schema)
+                                .or(additional)
+                                .map_or_else(
+                                    || child.clone(),
+                                    |(document, schema)| {
+                                        self.order(
+                                            document,
+                                            schema,
+                                            child,
+                                            format!("{path}/{key}"),
+                                            overlay || path == "/market_variants",
+                                            errors,
+                                        )
+                                    },
+                                );
+                            (key.to_string(), ordered)
+                        })
+                        .collect(),
+                )
             }
-            Value::Array(items) => {
-                if let Some((document, schema)) = candidates
-                    .iter()
-                    .find_map(|(document, candidate)| Some((*document, candidate.get("items")?)))
-                {
-                    for (index, item) in items.iter().enumerate() {
-                        self.order_errors(
-                            document,
-                            schema,
-                            item,
-                            format!("{path}/{index}"),
-                            overlay,
-                            errors,
-                        );
-                    }
-                }
-            }
-            _ => {}
+            Value::Array(items) => candidates
+                .iter()
+                .find_map(|(document, candidate)| Some((*document, candidate.get("items")?)))
+                .map_or_else(
+                    || value.clone(),
+                    |(document, schema)| {
+                        Value::Array(
+                            items
+                                .iter()
+                                .enumerate()
+                                .map(|(index, item)| {
+                                    self.order(
+                                        document,
+                                        schema,
+                                        item,
+                                        format!("{path}/{index}"),
+                                        overlay,
+                                        errors,
+                                    )
+                                })
+                                .collect(),
+                        )
+                    },
+                ),
+            _ => value.clone(),
         }
     }
 }

@@ -3,23 +3,15 @@ use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 
 fn order_errors(schemas: &Schemas, path: &str, data: &Value) -> Vec<String> {
-    let version = data
-        .get("schema_version")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let kind = Catalog::kind(path);
-    let Some(version) = version.or_else(|| schemas.current_version(kind)) else {
-        return vec![format!("{path}: no schema")];
-    };
-    let id = Schemas::id(kind, &version);
-    if !schemas.documents.contains_key(&id) {
-        return vec![format!("{path}: no schema {id}")];
+    match schemas.document_for(path, data) {
+        Err(error) => vec![format!("{path}: {error}")],
+        Ok(document) => schemas
+            .in_key_order(&document, data)
+            .1
+            .into_iter()
+            .map(|error| format!("{path}: {error}"))
+            .collect(),
     }
-    schemas
-        .key_order_errors(&id, data)
-        .into_iter()
-        .map(|error| format!("{path}: {error}"))
-        .collect()
 }
 
 #[test]
@@ -114,5 +106,36 @@ fn a_market_variant_is_ordered_as_an_overlay() {
         order_errors(&schemas, path, &model)
             .iter()
             .any(|error| error.contains("/market_variants/CA: keys must be ordered"))
+    );
+}
+
+#[test]
+fn a_reordered_file_is_put_back_in_order() {
+    let schemas = Schemas::load();
+    let path = "vehicle_models/porsche/2025/cross.json";
+    let model = &parsed(&[path])[path];
+    let document = schemas.document_for(path, model).unwrap();
+    let mut reordered = swapped(model, "stock_photo", "geometry_photo");
+    let year = model["years"].as_object().unwrap().keys().next().unwrap();
+    let colorway = &model["years"][year]["colorways"][0];
+    reordered["years"][year]["colorways"][0] = swapped(colorway, "name", "stock_photo");
+    assert_eq!(
+        pretty(&schemas.in_key_order(&document, &reordered).0),
+        pretty(model)
+    );
+}
+
+#[test]
+fn a_market_variant_removal_stays_in_place() {
+    let schemas = Schemas::load();
+    let path = "vehicle_models/porsche/2025/cross.json";
+    let mut model = parsed(&[path])[path].clone();
+    let document = schemas.document_for(path, &model).unwrap();
+    model["market_variants"] =
+        json!({"CA": {"markets": ["CA"], "frame": false, "model": "Cross CA"}});
+    let (ordered, _) = schemas.in_key_order(&document, &model);
+    assert_eq!(
+        pretty(&ordered["market_variants"]["CA"]),
+        pretty(&json!({"model": "Cross CA", "frame": false, "markets": ["CA"]}))
     );
 }
