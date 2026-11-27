@@ -26,7 +26,12 @@ A data problem gets fixed in Bike Book, not here. Formatting and key order fix t
 bikebook_ci/bin/test --fix vehicle_models/trek
 ```
 
-To check a Bike Book checkout this isn't cloned into, such as a worktree, name it in `BIKEBOOK_DATA`.
+To check a Bike Book checkout this isn't cloned into, such as a worktree, name it in `BIKEBOOK_DATA`. From the worktree, with this cloned into the main checkout at `~/bikebook`:
+
+```sh
+BIKEBOOK_DATA=. ~/bikebook/bikebook_ci/bin/test
+BIKEBOOK_DATA=. ~/bikebook/bikebook_ci/bin/test --fix vehicle_models/trek
+```
 
 ## Publishing the catalog
 
