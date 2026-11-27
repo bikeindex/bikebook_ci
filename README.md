@@ -48,7 +48,7 @@ The `schema_viewer` is what Bike Index's schema viewer shows: each document's cu
 
 The index lists a model's `market_variants` that state their own `markets` as its `variants` (each an `id` and its `markets`), not as rows of their own. A lookup picks the variant sold in the registrant's country, else the model itself.
 
-Format 6 keys a variant by its citation key. Ebycco's GB EB7Pro 24" is `m/ebycco/2025/eb7pro-24@GB` in its block's `models` and `incomplete` and in its index row's `variants`, while the model's own `id` stays `m/ebycco/2025/eb7pro-24`. A variant stating other markets is also published under each of their keys: Cannondale's JP SuperSix EVO Hi-MOD Disc Ultegra, sold in Japan and Switzerland, is both `m/cannondale/2020/supersix-evo-hi-mod-disc-ultegra@JP` and `…@CH`. Where two variants state a market, the first takes its key.
+Format 6 keys a variant by its citation key. Ebycco's GB EB7Pro 24" is `m/ebycco/2025/eb7pro-24@GB` in its block's `models` and `incomplete` and in its index row's `variants`, while the model's own `id` stays `m/ebycco/2025/eb7pro-24`. A variant stating other markets is also published under each of their keys, listed after the variants in `variants` and keyed to the same model in `models` and `incomplete`: Cannondale's JP SuperSix EVO Hi-MOD Disc Ultegra, sold in Japan and Switzerland, is both `m/cannondale/2020/supersix-evo-hi-mod-disc-ultegra@JP` and `…@CH`. Where two variants state a market, the first takes its key.
 
 ### Where the values come from
 
