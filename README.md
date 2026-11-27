@@ -17,7 +17,8 @@ This repository holds no data. Its tests read a Bike Book checkout and fail on a
 Clone this into a Bike Book checkout (Bike Book's `.gitignore` ignores `bikebook_ci/`), install [Rust](https://rustup.rs), and from the checkout:
 
 ```sh
-bikebook_ci/bin/test
+bikebook_ci/bin/test # run tests
+
 # To check another checkout, such as a worktree, name it in BIKEBOOK_DATA
 BIKEBOOK_DATA=../bikebook-worktree bikebook_ci/bin/test
 ```
