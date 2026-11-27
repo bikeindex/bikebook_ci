@@ -561,17 +561,27 @@ impl Schemas {
         }
     }
 
-    /// The value in the key order the catalog writes, and each object that wasn't: its schema's property order, any
-    /// key it doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null,
-    /// or false for an object) stay where they are, since they follow what it changes
-    pub fn in_key_order(&self, document: &str, value: &Value) -> (Value, Vec<String>) {
+    /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
+    /// doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null, or
+    /// false for an object) are left out, since they follow what it changes
+    pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
+        self.walk(document, value, false).1
+    }
+
+    /// The value in the order `key_order_errors` checks, each removal left where it is
+    pub fn in_key_order(&self, document: &str, value: &Value) -> Value {
+        self.walk(document, value, true).0.unwrap()
+    }
+
+    /// Builds the reordered value only when asked, since the check runs over every file in CI
+    fn walk(&self, document: &str, value: &Value, build: bool) -> (Option<Value>, Vec<String>) {
         let mut errors = vec![];
         let ordered = self.order(
-            document,
-            &self.documents[document],
+            (document, &self.documents[document]),
             value,
             String::new(),
             false,
+            build,
             &mut errors,
         );
         (ordered, errors)
@@ -579,13 +589,13 @@ impl Schemas {
 
     fn order(
         &self,
-        document: &str,
-        node: &Value,
+        (document, node): (&str, &Value),
         value: &Value,
         path: String,
         overlay: bool,
+        build: bool,
         errors: &mut Vec<String>,
-    ) -> Value {
+    ) -> Option<Value> {
         let mut candidates = vec![];
         self.branches(document, node, value, &mut candidates);
         match value {
@@ -645,62 +655,64 @@ impl Schemas {
                     ));
                 }
                 let mut in_order = expected.into_iter();
-                Value::Object(
+                let ordered = Value::Object(
                     map.iter()
                         .map(|(key, child)| match removal(child) {
                             true => key.as_str(),
                             false => in_order.next().unwrap(),
                         })
-                        .map(|key| {
+                        .filter_map(|key| {
                             let child = &map[key];
-                            let ordered = properties
+                            properties
                                 .iter()
                                 .find(|(name, _)| *name == key)
                                 .map(|(_, schema)| *schema)
                                 .or(additional)
                                 .map_or_else(
-                                    || child.clone(),
-                                    |(document, schema)| {
+                                    || build.then(|| child.clone()),
+                                    |schema| {
                                         self.order(
-                                            document,
                                             schema,
                                             child,
                                             format!("{path}/{key}"),
                                             overlay || path == "/market_variants",
+                                            build,
                                             errors,
                                         )
                                     },
-                                );
-                            (key.to_string(), ordered)
+                                )
+                                .map(|ordered| (key.to_string(), ordered))
                         })
                         .collect(),
-                )
+                );
+                build.then_some(ordered)
             }
             Value::Array(items) => candidates
                 .iter()
                 .find_map(|(document, candidate)| Some((*document, candidate.get("items")?)))
                 .map_or_else(
-                    || value.clone(),
-                    |(document, schema)| {
-                        Value::Array(
+                    || build.then(|| value.clone()),
+                    |schema| {
+                        let ordered = Value::Array(
                             items
                                 .iter()
                                 .enumerate()
-                                .map(|(index, item)| {
+                                .filter_map(|(index, item)| {
                                     self.order(
-                                        document,
                                         schema,
                                         item,
                                         format!("{path}/{index}"),
                                         overlay,
+                                        build,
                                         errors,
                                     )
                                 })
                                 .collect(),
-                        )
+                        );
+                        build.then_some(ordered)
                     },
                 ),
-            _ => value.clone(),
+            _ => build.then(|| value.clone()),
         }
     }
 }

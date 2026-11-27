@@ -37,11 +37,7 @@ fn fix(schemas: &Schemas, path: &str, ordered: bool) -> Result<bool, String> {
     let text = fs::read_to_string(&file).map_err(|error| error.to_string())?;
     let value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
     let value = match ordered {
-        true => {
-            schemas
-                .in_key_order(&schemas.document_for(path, &value)?, &value)
-                .0
-        }
+        true => schemas.in_key_order(&schemas.document_for(path, &value)?, &value),
         false => value,
     };
     let fixed = pretty(&value);

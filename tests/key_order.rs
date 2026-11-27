@@ -6,8 +6,7 @@ fn order_errors(schemas: &Schemas, path: &str, data: &Value) -> Vec<String> {
     match schemas.document_for(path, data) {
         Err(error) => vec![format!("{path}: {error}")],
         Ok(document) => schemas
-            .in_key_order(&document, data)
-            .1
+            .key_order_errors(&document, data)
             .into_iter()
             .map(|error| format!("{path}: {error}"))
             .collect(),
@@ -120,7 +119,7 @@ fn a_reordered_file_is_put_back_in_order() {
     let colorway = &model["years"][year]["colorways"][0];
     reordered["years"][year]["colorways"][0] = swapped(colorway, "name", "stock_photo");
     assert_eq!(
-        pretty(&schemas.in_key_order(&document, &reordered).0),
+        pretty(&schemas.in_key_order(&document, &reordered)),
         pretty(model)
     );
 }
@@ -133,7 +132,7 @@ fn a_market_variant_removal_stays_in_place() {
     let document = schemas.document_for(path, &model).unwrap();
     model["market_variants"] =
         json!({"CA": {"markets": ["CA"], "frame": false, "model": "Cross CA"}});
-    let (ordered, _) = schemas.in_key_order(&document, &model);
+    let ordered = schemas.in_key_order(&document, &model);
     assert_eq!(
         pretty(&ordered["market_variants"]["CA"]),
         pretty(&json!({"model": "Cross CA", "frame": false, "markets": ["CA"]}))
