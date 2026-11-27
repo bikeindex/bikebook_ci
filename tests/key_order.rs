@@ -91,12 +91,6 @@ fn a_market_variant_is_ordered_as_an_overlay() {
     let schemas = Schemas::load();
     let path = "vehicle_models/porsche/2025/cross.json";
     let mut model = parsed(&[path])[path].clone();
-    if schemas.documents[&Schemas::id("vehicle_model", model["schema_version"].as_str().unwrap())]
-        .pointer("/properties/market_variants")
-        .is_none()
-    {
-        return;
-    }
     model["market_variants"] =
         json!({"CA": {"model": "Cross CA", "frame": false, "markets": ["CA"]}});
     assert_eq!(order_errors(&schemas, path, &model), Vec::<String>::new());
@@ -136,5 +130,36 @@ fn a_market_variant_removal_stays_in_place() {
     assert_eq!(
         pretty(&ordered["market_variants"]["CA"]),
         pretty(&json!({"model": "Cross CA", "frame": false, "markets": ["CA"]}))
+    );
+}
+
+#[test]
+fn an_object_its_schema_names_no_keys_of_is_sorted() {
+    let schemas = Schemas::load();
+    let path = "vehicle_models/porsche/2025/cross.json";
+    let mut model = parsed(&[path])[path].clone();
+    model["sizes"][0]["geometry"]["extra_measurements"] =
+        json!({"seat_post": 300, "chainstay_length": 430});
+    assert!(
+        order_errors(&schemas, path, &model)
+            .iter()
+            .any(|error| error
+                .contains("/sizes/0/geometry/extra_measurements: keys must be ordered"))
+    );
+}
+
+#[test]
+fn a_market_variant_false_that_isnt_a_removal_is_ordered() {
+    let schemas = Schemas::load();
+    let path = "vehicle_models/porsche/2025/cross.json";
+    let mut model = parsed(&[path])[path].clone();
+    model["market_variants"] = json!({
+        "CA": {"markets": ["CA"], "suspension": {"front": {"lockout": false, "travel": 120}}}
+    });
+    assert!(
+        order_errors(&schemas, path, &model)
+            .iter()
+            .any(|error| error
+                .contains("/market_variants/CA/suspension/front: keys must be ordered"))
     );
 }

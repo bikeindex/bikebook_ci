@@ -14,16 +14,19 @@ This repository holds no data. Its tests read a Bike Book checkout and fail on a
 
 ## Running the checks
 
-Clone this into a Bike Book checkout (Bike Book's `.gitignore` ignores `bikebook_ci/`), install [Rust](https://rustup.rs), and from the checkout:
+From a Bike Book checkout, with [Rust](https://rustup.rs) installed:
 
 ```sh
+# Clone this into it, kept out of Bike Book's git
+git clone https://github.com/bikeindex/bikebook_ci && echo bikebook_ci/ >> .git/info/exclude
+
 bikebook_ci/bin/test # run tests
 
 # To check another checkout, such as a worktree, name it in BIKEBOOK_DATA
 BIKEBOOK_DATA=../bikebook-worktree bikebook_ci/bin/test
 ```
 
-A data problem is fixed in Bike Book, not here. `--fix` rewrites what the formatting and key order checks report, in every file or only those given. A duplicate key keeps its last value, so read the diff.
+A data problem is fixed in Bike Book, not here. `--fix` rewrites what the formatting and key order checks report, in every file or only those given, which must be in the checkout being checked. A duplicate key keeps its last value, so read the diff.
 
 ```sh
 bikebook_ci/bin/test --fix

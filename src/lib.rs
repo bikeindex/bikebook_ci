@@ -563,7 +563,8 @@ impl Schemas {
 
     /// Each object whose keys aren't in the order the catalog writes them: its schema's property order, any key it
     /// doesn't name after them sorted, and a year-keyed object newest first. A market variant's removals (null, or
-    /// false for an object) are left out, since they follow what it changes
+    /// false where its schema takes false for an object) are left out, since they follow what it changes. In a
+    /// variant, an object its schema names no keys of keeps its order, since a list written as one follows its base's
     pub fn key_order_errors(&self, document: &str, value: &Value) -> Vec<String> {
         self.walk(document, value, false).1
     }
@@ -619,33 +620,53 @@ impl Schemas {
                         .and_then(Value::as_str)
                         == Some("^\\d{4}$");
                 }
-                let removal =
-                    |child: &Value| overlay && (child.is_null() || *child == Value::Bool(false));
+                let schema_of = |key: &str| {
+                    properties
+                        .iter()
+                        .find(|(name, _)| *name == key)
+                        .map(|(_, schema)| *schema)
+                        .or(additional)
+                };
+                let removal = |key: &str, child: &Value| {
+                    overlay
+                        && match child {
+                            Value::Null => true,
+                            Value::Bool(false) => {
+                                schema_of(key).is_some_and(|(document, schema)| {
+                                    let mut branches = vec![];
+                                    self.branches(document, schema, child, &mut branches);
+                                    branches
+                                        .iter()
+                                        .any(|(_, branch)| branch.get("const") == Some(child))
+                                })
+                            }
+                            _ => false,
+                        }
+                };
                 let keys: Vec<&str> = map
                     .iter()
-                    .filter(|(_, child)| !removal(child))
+                    .filter(|(key, child)| !removal(key, child))
                     .map(|(key, _)| key.as_str())
                     .collect();
-                let expected: Vec<&str> = if !properties.is_empty() {
-                    let mut named: Vec<&str> = properties
-                        .iter()
-                        .map(|(key, _)| *key)
-                        .filter(|key| keys.contains(key))
-                        .collect();
-                    let mut unnamed: Vec<&str> = keys
-                        .iter()
-                        .copied()
-                        .filter(|key| !named.contains(key))
-                        .collect();
-                    unnamed.sort();
-                    named.extend(unnamed);
-                    named
-                } else if by_year {
+                let expected: Vec<&str> = if by_year {
                     let mut sorted = keys.clone();
                     sorted.sort_by_key(|key| std::cmp::Reverse(key.parse::<i64>().unwrap_or(0)));
                     sorted
-                } else {
+                } else if overlay && properties.is_empty() {
                     keys.clone()
+                } else {
+                    let mut unnamed: Vec<&str> = keys
+                        .iter()
+                        .copied()
+                        .filter(|key| !properties.iter().any(|(name, _)| name == key))
+                        .collect();
+                    unnamed.sort();
+                    properties
+                        .iter()
+                        .map(|(key, _)| *key)
+                        .filter(|key| keys.contains(key))
+                        .chain(unnamed)
+                        .collect()
                 };
                 if keys != expected {
                     let at = if path.is_empty() { "(root)" } else { &path };
@@ -657,17 +678,13 @@ impl Schemas {
                 let mut in_order = expected.into_iter();
                 let ordered = Value::Object(
                     map.iter()
-                        .map(|(key, child)| match removal(child) {
+                        .map(|(key, child)| match removal(key, child) {
                             true => key.as_str(),
                             false => in_order.next().unwrap(),
                         })
                         .filter_map(|key| {
                             let child = &map[key];
-                            properties
-                                .iter()
-                                .find(|(name, _)| *name == key)
-                                .map(|(_, schema)| *schema)
-                                .or(additional)
+                            schema_of(key)
                                 .map_or_else(
                                     || build.then(|| child.clone()),
                                     |schema| {
