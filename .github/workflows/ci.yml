@@ -35,14 +35,18 @@ jobs:
           rustup toolchain install "$version" --profile minimal --component rustfmt,clippy
           rustup default "$version"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-nextest
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked --no-run
+      - run: cargo nextest run --locked --no-run
       - name: Wait for the catalog
         run: |
           until [ -f "$RUNNER_TEMP/catalog_status" ]; do sleep 1; done
           exit "$(cat "$RUNNER_TEMP/catalog_status")"
-      - run: cargo test --locked --no-fail-fast
+      # Unlike cargo test, nextest runs the test binaries at once rather than one by one
+      - run: cargo nextest run --locked --no-fail-fast
 
   # Apart from test, so it's a check of its own
   schema_changes:
