@@ -17,3 +17,7 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 [profile.test]
 opt-level = 3
 debug = false
+
+# CI rebuilds this crate every run, and at 1 it compiles a third faster than at 3 for about the same test CPU
+[profile.test.package.bikebook_data_checks]
+opt-level = 1
