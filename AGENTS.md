@@ -1,20 +1,18 @@
-The checks for [BikeBook's data](https://github.com/bikeindex/bikebook): a Rust crate whose tests read a bikebook checkout and fail on any file that breaks what the catalog promises. bikebook's CI calls `.github/workflows/ci.yml` here at `main`, so a change merged here applies to bikebook's next run. bikebook's own publish workflow, on a push to its `main`, calls `start_publish.yml`, which starts `publish.yml`. That runs here because it holds the R2 keys: never move them into a workflow bikebook calls, where bikebook's workflows could read them.
+`README.md` is the canonical description of what this repo checks, how to run it, and how the catalog publishes: read it first, and change it rather than restating it here.
+
+**`publish.yml` runs here because it holds the R2 keys**: never move them into a workflow bikebook calls, where bikebook's workflows could read them.
 
 # Data
 
-**The tests read the bikebook checkout `BIKEBOOK_DATA` names**, and stop if it has no `schemas/`, since a missing directory would read as an empty catalog and pass. Run `BIKEBOOK_DATA=<a bikebook checkout> cargo test --locked --no-fail-fast`. This repo's own CI runs against bikebook's `main`.
+**The tests stop if `BIKEBOOK_DATA` has no `schemas/`**, since a missing directory would read as an empty catalog and pass. This repo's own CI runs against bikebook's `main`.
 
-**This repo holds no data.** A wrong value is fixed in bikebook, in the file. Loosening a check to let a file through is a change to what the catalog promises, so it's the user's call.
+**A wrong value is fixed in bikebook, in the file.** Loosening a check to let a file through is a change to what the catalog promises, so it's the user's call.
 
 **A change to a file's shape lands here first**, accepting both the old shape and the new, then the data moves to it in bikebook. bikebook's checks run against this repo's `main`, so a check that only accepts the new shape turns bikebook red until the data lands.
 
-# Checks
-
-Every file pretty-printed with two spaces and a trailing newline, its keys in its schema's property order, valid against the schema its `schema_version` names (a market variant resolved), its `id` matching its path, a model's motors present, its photos keyed by its id, every image on our R2 bucket's `https://bikebook.bikeindex.org/`, and bikebook's `representative_vehicles.csv` naming vehicle models, alphabetically. A check of its own, `bin/check_schema_change` in CI's `schema_changes` job, fails a branch that changes a schema and edits any data file but the vehicles its base's `representative_vehicles.csv` lists and the components they link, and, on a bikebook pull request, any change to `representative_vehicles.csv`, so the list only changes by a hand merge. CI runs them with `cargo fmt --check` and `cargo clippy -- -D warnings`, on the toolchain `.tool-versions` pins.
-
 # Code
 
-Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check, and `src/bin/generate_catalog/` writes the published catalog, byte for byte what its readers have read so far, in each format `FORMATS` lists. A change to that layout is a new format, in two PRs: the `format-update` skill. It's run only by `publish.yml`, never by hand: don't document a local command for it. Anything bike_data holds is read from its latest commit, never copied here. `catalog_snapshot/` is a stopgap for hand-written values bikebook and bike_data don't hold yet (#3), not a place for data. Format with `cargo fmt` (`rustfmt.toml`); clippy runs with `-D warnings`.
+Shared readers in `src/lib.rs`, one `tests/<area>.rs` per kind of check, and `src/bin/generate_catalog/` writes the published catalog, byte for byte what its readers have read so far, in each format `FORMATS` lists. A change to that layout is a new format, in two PRs: the `format-update` skill. It's run only by `publish.yml`: don't document a local command for it. `src/bin/fix.rs` reorders with the walk the key order check reports from (`Schemas::in_key_order`). Read what bike_data holds from its latest commit, never copy it here, and don't add data to `catalog_snapshot/`, a stopgap (#3). Format with `cargo fmt` (`rustfmt.toml`); CI runs clippy with `-D warnings`, on the toolchain `.tool-versions` pins.
 
 - **Each check over the whole catalog has a test beside it that breaks a sample on purpose and asserts the check reports it.** A check that passes on every file proves nothing until something has seen it fail.
 - **Every test answers "what bug does this fail on?"** If you can't name a plausible wrong edit that turns it red, delete it — one that only restates the code costs an edit on every change and catches nothing.
